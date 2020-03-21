@@ -155,3 +155,5 @@ def getDestsFromFlights(flights):
     for i in range(0, len(flights)):
         dests.append(flights[i]["id"])
     return dests
+
+# Change
