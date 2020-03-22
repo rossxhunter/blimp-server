@@ -15,8 +15,8 @@ dbManager.connect(application)
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
 
-application.wsgi_app = ProfilerMiddleware(
-    application.wsgi_app, restrictions=[30])
+# application.wsgi_app = ProfilerMiddleware(
+#     application.wsgi_app, restrictions=[30])
 
 if __name__ == "__main__":
     application.run()

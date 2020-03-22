@@ -30,8 +30,10 @@ def getFromJSONList(list, field):
 
 
 def performDSConstraintBasedRecommender(constraints):
-    origin = getFromJSONList(constraints, "origin")
-    departureDate = getFromJSONList(constraints, "departureDate")
+    # origin = getFromJSONList(constraints, "origin")
+    # departureDate = getFromJSONList(constraints, "departureDate")
+    origin = "PAR"
+    departureDate = "2020-02-02"
     flights = amadeus.getAllDirectFlights(origin, departureDate)
     dests = getDestsFromFlights(flights)
     destsstr = listToStr(dests)
@@ -155,5 +157,3 @@ def getDestsFromFlights(flights):
     for i in range(0, len(flights)):
         dests.append(flights[i]["id"])
     return dests
-
-# Change
