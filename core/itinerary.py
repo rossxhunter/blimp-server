@@ -2,40 +2,63 @@ import apis.mapbox as mapbox
 from flask.json import jsonify
 from config import dbManager
 from datetime import datetime, timedelta
-import cProfile
 from util.util import divide_round_up, merge_dicts
+import apis.amadeus as amadeus
 
 
-def calculate_itinerary(destination):
-    # cProfile.run('get_POIs_for_destination(destination)')
+def calculate_itinerary(destination, constraints, softPrefs, prefScores):
+
+    dest_code_query = dbManager.query("""
+    SELECT city_code FROM destination WHERE id={dest_id}
+    """.format(dest_id=destination))[0][0]
+    travel = get_travel_for_itinerary(
+        constraints["origin"], dest_code_query, constraints["departure_date"], constraints["return_date"], constraints["travellers"])
+    accommodation = get_accommodation_for_itinerary(
+        dest_code_query, constraints["departure_date"], constraints["return_date"])
+
     pois = get_POIs_for_destination(destination)
     edges = get_durations(pois)
-    # edges = create_edges(pois, travel_durations)
     B = 8 * 60 * 60
-    T = 30
-    k = 2
+    T = 30000000
+    k = 5
     # startTime = datetime(year=2020, month=2, day=28, hour=8)
-    start_node = ("4ac51183f964a52049a020e3", pois["4ac51183f964a52049a020e3"])
+    # start_node = ("4ac51183f964a52049a020e3", pois["4ac51183f964a52049a020e3"])
+    start_node_id = next(iter(pois))
+    start_node = (start_node_id, pois[start_node_id])
+    del pois[start_node_id]
     P, times = multi_tour(
         pois, edges, B, k, start_node, T)
-    visitDurations = [1*60*60] * len(pois)
+    visitDurations = [2*60*60] * len(pois)
     itinerary = {}
     for i in range(0, len(P)):
         day_itinerary = []
         for j in range(0, len(P[i])):
             day_itinerary.append(
-                {"name": P[i][j][1]["name"], "startTime": times[i][j], "duration": visitDurations[0]})
+                {"name": P[i][j][1]["name"], "description": P[i][j][1]["description"], "bestPhoto": P[i][j][1]["best_photo"], "startTime": times[i][j], "duration": visitDurations[0]})
         itinerary[i] = day_itinerary
-    return jsonify(itinerary=itinerary)
+    # print(itinerary)
+    return jsonify(itinerary=itinerary, travel=travel, accommodation=accommodation)
+
+
+def get_travel_for_itinerary(origin, dest, departure_date, return_date, travellers):
+    flights = amadeus.get_direct_flights_from_origin_to_desintaion(
+        origin, dest, departure_date, return_date, travellers)
+    return flights
+
+
+def get_accommodation_for_itinerary(dest, check_in_date, check_out_date):
+    hotel = amadeus.get_accommodation_for_destination(
+        dest, check_in_date, check_out_date)
+    return hotel
 
 
 def multi_tour(pois, edges, budget, num_days, start_node, target_value):
-    visitDurations = [1*60*60] * len(pois)
+    visitDurations = [2*60*60] * len(pois)
     P_star = []
     t = []
     for poi in pois.items():
         if Utility([poi]) > target_value:
-            P, t_P = ([start_node, poi], [0, get_specific_edge(edges, start_node["id"],
+            P, t_P = ([start_node, poi], [0, get_specific_edge(edges, start_node[0],
                                                                poi[0])])
             P_star.append(P)
             t.append(t_P)
@@ -88,7 +111,7 @@ def single_tour(pois, edges, budget, start_node):
         if (P_star == None):
             break
 
-    visitDurations = [1*60*60] * len(P)
+    visitDurations = [2*60*60] * len(P)
 
     times = [0]
     for p in range(0, len(P) - 1):
@@ -151,7 +174,7 @@ def get_missing_durations(missing):
             len(missing_dests), MAX_DEST_POIS)
         for j in range(0, num_iterations_dests):
             missing_dests_subset = list(missing_dests.items())[j *
-                                                               MAX_DEST_POIS:(j+1)*MAX_DEST_POIS]
+                                                               MAX_DEST_POIS: (j+1)*MAX_DEST_POIS]
             missing_matrix = missing_sources_subset + missing_dests_subset
             missing_coords = []
             for poi in missing_matrix:
@@ -210,7 +233,7 @@ def get_specific_edge(edges, startId, endId):
 
 
 def Cost(path, edges):
-    timeAtPOIs = (len(path) - 1) * 1 * 60 * 60
+    timeAtPOIs = (len(path) - 1) * 2 * 60 * 60
     travellingTime = 0
     for p in range(0, len(path) - 1):
         duration = get_specific_edge(edges, path[p][0],
@@ -222,7 +245,7 @@ def Cost(path, edges):
 def Utility(path):
     total = 0
     for p in path:
-        total += p[1]["score"]
+        total += p[1]["score"] + p[1]["popularity"] * p[1]["rating"]
     return total
 
 
@@ -250,7 +273,7 @@ def TSP(pois, edges):
 
 def get_POIs_for_destination(destination):
     getPOIsQuery = dbManager.query("""
-    SELECT poi.id,poi.name,poi.latitude,poi.longitude,categories.culture_score,categories.learn_score,categories.relax_score FROM poi
+    SELECT poi.id,poi.name,poi.latitude,poi.longitude,poi.tip_count,poi.rating,poi.description,poi.best_photo,categories.culture_score,categories.learn_score,categories.relax_score FROM poi
     INNER JOIN categories ON poi.category_id = categories.id 
     WHERE poi.destination_id={destination}
     ORDER BY poi.id
@@ -258,7 +281,7 @@ def get_POIs_for_destination(destination):
     """ .format(destination=destination))
     pois = {}
     for poi in getPOIsQuery:
-        score = poi[4] + poi[5] + poi[6]
+        score = poi[8] + poi[9] + poi[10]
         pois[poi[0]] = {"name": poi[1],
-                        "latitude": poi[2], "longitude": poi[3], "score": score}
+                        "latitude": poi[2], "longitude": poi[3], "score": score, "popularity": poi[4] if poi[4] != None else 0, "rating": poi[5] if poi[5] != None else 0, "description": poi[6] if poi[6] != None else "POI description...", "best_photo": poi[7] if poi[7] != None else "https://upload.wikimedia.org/wikipedia/commons/e/e9/Buckingham_Palace_UK.jpg"}
     return pois

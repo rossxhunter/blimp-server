@@ -8,12 +8,15 @@ from config import application
 from config import dbManager
 from config import config
 from werkzeug.middleware.profiler import ProfilerMiddleware
+from flask_cors import CORS
 
 config.configure_app(application)
 dbManager.connect(application)
 
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
+
+CORS(application)
 
 # application.wsgi_app = ProfilerMiddleware(
 #     application.wsgi_app, restrictions=[30])

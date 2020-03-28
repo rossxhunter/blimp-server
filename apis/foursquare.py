@@ -8,7 +8,7 @@ client_secret = os.environ["FOURSQUARE_CLIENT_SECRET"]
 v = '20180323'
 
 
-def getNearbyPOIs(latitude, longitude, cats):
+def get_nearby_POIs(latitude, longitude, cats):
     params = dict(
         client_id=client_id,
         client_secret=client_secret,
@@ -23,6 +23,17 @@ def getNearbyPOIs(latitude, longitude, cats):
         limit=1000
     )
     resp = requests.get(url=base_url+'explore', params=params)
+    data = json.loads(resp.text)
+    return data
+
+
+def get_POI_details(id):
+    params = dict(
+        client_id=client_id,
+        client_secret=client_secret,
+        v=v,
+    )
+    resp = requests.get(url=base_url + id, params=params)
     data = json.loads(resp.text)
     return data
 
