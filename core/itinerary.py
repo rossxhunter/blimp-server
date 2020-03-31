@@ -1,21 +1,12 @@
 import apis.mapbox as mapbox
 from flask.json import jsonify
-from config import dbManager
+from config import db_manager
 from datetime import datetime, timedelta
 from util.util import divide_round_up, merge_dicts
 import apis.amadeus as amadeus
 
 
 def calculate_itinerary(destination, constraints, softPrefs, prefScores):
-
-    dest_code_query = dbManager.query("""
-    SELECT city_code FROM destination WHERE id={dest_id}
-    """.format(dest_id=destination))[0][0]
-    travel = get_travel_for_itinerary(
-        constraints["origin"], dest_code_query, constraints["departure_date"], constraints["return_date"], constraints["travellers"])
-    accommodation = get_accommodation_for_itinerary(
-        dest_code_query, constraints["departure_date"], constraints["return_date"])
-
     pois = get_POIs_for_destination(destination)
     edges = get_durations(pois)
     B = 8 * 60 * 60
@@ -36,20 +27,7 @@ def calculate_itinerary(destination, constraints, softPrefs, prefScores):
             day_itinerary.append(
                 {"name": P[i][j][1]["name"], "description": P[i][j][1]["description"], "bestPhoto": P[i][j][1]["best_photo"], "startTime": times[i][j], "duration": visitDurations[0]})
         itinerary[i] = day_itinerary
-    # print(itinerary)
-    return jsonify(itinerary=itinerary, travel=travel, accommodation=accommodation)
-
-
-def get_travel_for_itinerary(origin, dest, departure_date, return_date, travellers):
-    flights = amadeus.get_direct_flights_from_origin_to_desintaion(
-        origin, dest, departure_date, return_date, travellers)
-    return flights
-
-
-def get_accommodation_for_itinerary(dest, check_in_date, check_out_date):
-    hotel = amadeus.get_accommodation_for_destination(
-        dest, check_in_date, check_out_date)
-    return hotel
+    return itinerary
 
 
 def multi_tour(pois, edges, budget, num_days, start_node, target_value):
@@ -129,7 +107,7 @@ def get_durations(pois):
     missing = {}
     poi_ids = pois.keys()
     poi_ids_string = ", ".join('"{0}"'.format(p) for p in poi_ids)
-    get_durations_query = dbManager.query("""
+    get_durations_query = db_manager.query("""
     SELECT start_id, end_id, driving_time FROM travel_time WHERE start_id IN ({start_ids}) AND end_id IN ({end_ids})
     ORDER BY start_id, end_id
     """ .format(start_ids=poi_ids_string, end_ids=poi_ids_string))
@@ -188,7 +166,7 @@ def get_missing_durations(missing):
                 missing_coords_rev, missing_dests_subset, missing_sources_subset, True)
             new_durations = merge_dicts(new_durations_1, new_durations_2)
             new_durations_insert = get_new_durations_insert(new_durations)
-            insert_durations = dbManager.insert("""
+            insert_durations = db_manager.insert("""
             REPLACE INTO travel_time (start_id, end_id, driving_time) VALUES {new_durations}
             """ .format(new_durations=new_durations_insert))
             durations = merge_dicts(durations, new_durations)
@@ -272,7 +250,7 @@ def TSP(pois, edges):
 
 
 def get_POIs_for_destination(destination):
-    getPOIsQuery = dbManager.query("""
+    getPOIsQuery = db_manager.query("""
     SELECT poi.id,poi.name,poi.latitude,poi.longitude,poi.tip_count,poi.rating,poi.description,poi.best_photo,categories.culture_score,categories.learn_score,categories.relax_score FROM poi
     INNER JOIN categories ON poi.category_id = categories.id 
     WHERE poi.destination_id={destination}
@@ -283,5 +261,5 @@ def get_POIs_for_destination(destination):
     for poi in getPOIsQuery:
         score = poi[8] + poi[9] + poi[10]
         pois[poi[0]] = {"name": poi[1],
-                        "latitude": poi[2], "longitude": poi[3], "score": score, "popularity": poi[4] if poi[4] != None else 0, "rating": poi[5] if poi[5] != None else 0, "description": poi[6] if poi[6] != None else "POI description...", "best_photo": poi[7] if poi[7] != None else "https://upload.wikimedia.org/wikipedia/commons/e/e9/Buckingham_Palace_UK.jpg"}
+                        "latitude": poi[2], "longitude": poi[3], "score": score, "popularity": poi[4] if poi[4] != None else 0, "rating": poi[5] if poi[5] != None else 0, "description": poi[6], "best_photo": poi[7]}
     return pois

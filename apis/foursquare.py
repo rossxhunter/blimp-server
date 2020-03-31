@@ -17,7 +17,7 @@ def get_nearby_POIs(latitude, longitude, cats):
         locale="en",
         # section="sights",
         # categoryId=cats
-        # query="museum",
+        query="tourist",
         radius=15000,
         sortByPopularity=1,
         limit=1000

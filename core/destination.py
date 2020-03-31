@@ -1,139 +1,180 @@
-from config import dbManager
-import apis.wikipedia as wikipedia
-import apis.amadeus as amadeus
-import apis.foursquare as foursquare
+from config import db_manager
+from apis import wikipedia, exchange_rates
 from flask.json import jsonify
-from util.util import listToTuple, listToStr
+from util.util import list_to_tuple, listToStr, get_list_of_values_from_list_of_dicts
 from util.db_populate import populate_POI_details, populate_POI_table, add_codes, populate_destination_images
 from util.exceptions import NoResults
+from core import accommodation, flights
 
 
-def calculate_destination(constraints, softPrefs, prefScores):
+def calculate_destination(constraints, soft_prefs, pref_scores):
     # add_codes()
-    # calculateDestinationScores()
-    dests = performDSConstraintBasedRecommender(constraints)
-    # populate_POI_Table()
+    # populate_POI_table()
+    # calculate_destination_scores()
     # populate_POI_details()
     # populate_destination_images()
-    performDSCaseBasedRecommender1(softPrefs)
-    performDSCaseBasedRecommender2(prefScores, dests)
+    dests = dests_from_constraints_recommender(constraints)
     if ("destination" in constraints):
         if (constraints["destination"]["type"] == "city"):
-            getDestQuery = dbManager.query("""
-            SELECT id,name FROM viable_destination WHERE id = "{dest}"
-            """.format(dest=constraints["destination"]["id"]))
-            if (len(getDestQuery) == 0):
-                raise NoResults(
-                    'Cannot fly to this destination', status_code=410)
+            dest_id, name = get_destination_from_city(
+                constraints["destination"]["id"])
+
         elif (constraints["destination"]["type"] == "airport"):
-            getDestQuery = dbManager.query("""
-            SELECT id,name FROM viable_destination WHERE name IN 
-            (SELECT municipality FROM airports WHERE iata_code="{code}")
-            """.format(code=constraints["destination"]["id"]))
-            print("""
-            SELECT id,name FROM viable_destination WHERE name IN 
-            (SELECT municipality FROM airports WHERE iata_code="{code}")
-            """.format(code=constraints["destination"]["id"]))
-            if (len(getDestQuery) == 0):
-                raise NoResults(
-                    'Cannot fly to this airport', status_code=410)
+            dest_id, name = get_destination_from_airport(
+                constraints["destination"]["id"])
+
+        ranked_dests = [dest_id]
+
     else:
-        getDestQuery = dbManager.query("""
-        SELECT id,name FROM viable_destination ORDER BY score ASC LIMIT 1
-        """)
-    dest_id = getDestQuery[0][0]
-    name = getDestQuery[0][1]
+        dest_ids = dests.keys()
+        dests_soft_prefs_similarities = prefs_recommender(soft_prefs, dest_ids)
+        dests_pref_scores_similarities = scores_recommender(
+            pref_scores, dests_soft_prefs_similarities)
+        add_to_viable_dests(
+            dest_ids, dests_soft_prefs_similarities, dests_pref_scores_similarities)
+        ranked_dests = get_ranked_dests(
+            dests_soft_prefs_similarities, dests_pref_scores_similarities)
+
+    dest_id, name, accommodation_options = select_dest_from_ranked_dests(
+        dests, ranked_dests, constraints)
+
     wiki_entry = wikipedia.getWikiDescription(name)
     # return jsonify(name="London", wiki=wikipedia.getWikiDescription("London"), destId=2643743)
-    return jsonify(name=name, wiki=wiki_entry, destId=dest_id)
+    return {"name": name, "wiki": wiki_entry, "id": dest_id, "accommodation": accommodation_options}
 
 
-def performDSConstraintBasedRecommender(constraints):
+def get_ranked_dests(dests_soft_prefs_similarities, dests_pref_scores_similarities):
+    return sorted(dests_soft_prefs_similarities,
+                  key=dests_soft_prefs_similarities.get, reverse=True)
+
+
+def add_to_viable_dests(dests, dests_soft_prefs_similarities, dests_pref_scores_similarities):
+    for dest in dests:
+        viable_insert = db_manager.insert("""
+        REPLACE INTO viable_destinations (id, name, soft_prefs_sim, pref_scores_sim) VALUES ({id}, (SELECT name FROM destination WHERE id = {id}), {soft_prefs_sim}, {pref_scores_sim})
+        """.format(id=dest, soft_prefs_sim=dests_soft_prefs_similarities[dest], pref_scores_sim=dests_pref_scores_similarities[dest]))
+
+
+def select_dest_from_ranked_dests(dests, ranked_dests, constraints):
+    for dest_id in ranked_dests:
+        dest_code_query = db_manager.query("""
+        SELECT city_code FROM destination WHERE id={dest_id}
+        """.format(dest_id=dest_id))[0][0]
+        accommodation_options = accommodation.get_accommodation_options(dest_code_query, constraints["departure_date"], constraints["return_date"], constraints["travellers"],
+                                                                        constraints["accommodation_type"], constraints["accommodation_stars"], constraints["accommodation_amenities"], constraints["budget_currency"])
+        if destination_satisfies_budget(dests[dest_id]["price"], dest_id, constraints, accommodation_options):
+            dest_query = db_manager.query("""
+            SELECT name FROM destination WHERE id = {id}
+            """.format(id=dest_id))
+            return dest_id, dest_query[0][0], accommodation_options
+        else:
+            raise NoResults(
+                'Budget is too low')
+
+
+def destination_satisfies_budget(flight_price, dest_id, constraints, accommodation_options):
+    currency_conversion = 1
+    if flight_price["currency"] != constraints["budget_currency"]:
+        currency_conversion = exchange_rates.get_exchange_rate(
+            flight_price["currency"], constraints["budget_currency"])
+    num_travellers = constraints["travellers"]["adults"] + \
+        constraints["travellers"]["children"]
+    flight_converted_price = float(flight_price["amount"]) * \
+        currency_conversion * float(num_travellers)
+
+    for hotel in accommodation_options:
+        hotel_price = hotel["price"]["amount"]
+        total_price = flight_converted_price + hotel_price
+        if total_price < constraints["budget_leq"]:
+            return True
+    return False
+
+
+def get_destination_from_airport(code):
+    getDestQuery = db_manager.query("""
+            SELECT id,name FROM viable_destinations WHERE name IN 
+            (SELECT municipality FROM airports WHERE iata_code="{code}")
+            """.format(code=code))
+    if (len(getDestQuery) == 0):
+        raise NoResults(
+            'Cannot fly to this airport')
+    return getDestQuery[0][0], getDestQuery[0][1]
+
+
+def get_destination_from_city(id):
+    getDestQuery = db_manager.query("""
+            SELECT id,name FROM viable_destinations WHERE id = "{id}"
+            """.format(id=id))
+    if (len(getDestQuery) == 0):
+        raise NoResults(
+            'Cannot fly to this destination')
+    return getDestQuery[0][0], getDestQuery[0][1]
+
+
+def dests_from_constraints_recommender(constraints):
+    dests = get_flyable_dests(constraints)
+    # TODO: Perform constraint based stuff on dests here
+    return dests
+
+
+def get_flyable_dests(constraints):
     origin = get_airport_and_city_code(constraints["origin"])
     departure_date = constraints["departure_date"]
-    flights = amadeus.getAllDirectFlights(origin, departure_date)
-    dests = getDestsFromFlights(flights)
-    destsstr = listToStr(dests)
-    return dests
+    travellers = constraints["travellers"]
+
+    if (constraints["trip_type"] == "Return"):
+        return_date = constraints["return_date"]
+        all_flights = flights.get_all_return_flights(
+            origin, departure_date, return_date)
+
+    elif (constraints["trip_type"] == "One Way"):
+        all_flights = flights.get_all_one_way_flights(
+            origin, departure_date)
+
+    return all_flights
 
 
 def get_airport_and_city_code(dest):
     if dest["type"] == "airport":
         return dest["id"]
     elif dest["type"] == "city":
-        city_code_query = dbManager.query("""
+        city_code_query = db_manager.query("""
         SELECT city_code FROM destination WHERE id = "{id}"
         """.format(id=dest["id"]))
         return city_code_query[0][0]
 
 
-def performDSCaseBasedRecommender1(softPrefs):
+def prefs_recommender(softPrefs, dests):
     preferred_activities = softPrefs["preferred_activities"]
+    similarities = {}
+    for dest in dests:
+        similarities[dest] = 0
+        similarities[dest] += get_preferred_activities_similarity(
+            dest, softPrefs["preferred_activities"], 1)
+
+    return similarities
+
+
+def get_preferred_activities_similarity(dest, preferred_activities, weight):
     if len(preferred_activities) > 0:
-        pref_act_ids = dbManager.query("""
-        SELECT id FROM categories WHERE name IN {preferred_activities};
-        """.format(preferred_activities=listToTuple(preferred_activities)))
-
-    return
-
-
-def calculateDestinationScores():
-    poi_counts = dbManager.query("""
-    SELECT destination_id, category_id, COUNT(id) FROM poi
-    GROUP BY category_id, destination_id;
-    """)
-    scores = {}
-    score_totals = {}
-    for poi_count in poi_counts:
-        if poi_count[0] in scores.keys():
-            scores[poi_count[0]].append((poi_count[1], poi_count[2]))
-        else:
-            scores.update({poi_count[0]: [(poi_count[1], poi_count[2])]})
-
-        if poi_count[0] in score_totals.keys():
-            score_totals[poi_count[0]] += poi_count[2]
-        else:
-            score_totals.update({poi_count[0]: poi_count[2]})
-
-    for dest_id, dest_scores in scores.items():
-        feature_scores = {"culture": 0, "learn": 0, "action": 0, "party": 0, "sport": 0,
-                          "food": 0, "relax": 0, "nature": 0, "shopping": 0, "romantic": 0, "family": 0}
-        for dest_cat_score in dest_scores:
-            poi_scores = dbManager.query("""
-            SELECT culture_score, learn_score, action_score, party_score, sport_score, food_score, relax_score, nature_score, shopping_score, romantic_score, family_score FROM categories WHERE id = \"{cat_id}\";
-            """ .format(cat_id=dest_cat_score[0]))[0]
-            feature_scores["culture"] += dest_cat_score[1] * poi_scores[0]
-            feature_scores["learn"] += dest_cat_score[1] * poi_scores[1]
-            feature_scores["action"] += dest_cat_score[1] * poi_scores[2]
-            feature_scores["party"] += dest_cat_score[1] * poi_scores[3]
-            feature_scores["sport"] += dest_cat_score[1] * poi_scores[4]
-            feature_scores["food"] += dest_cat_score[1] * poi_scores[5]
-            feature_scores["relax"] += dest_cat_score[1] * poi_scores[6]
-            feature_scores["nature"] += dest_cat_score[1] * poi_scores[7]
-            feature_scores["shopping"] += dest_cat_score[1] * poi_scores[8]
-            feature_scores["romantic"] += dest_cat_score[1] * poi_scores[9]
-            feature_scores["family"] += dest_cat_score[1] * poi_scores[10]
-        for feature, score in feature_scores.items():
-            feature_scores[feature] = getSimplifiedScore(score)
-        poi_counts = dbManager.insert("""
-        UPDATE destination SET culture_score={culture_score}, learn_score={learn_score}, action_score={action_score}, party_score={party_score}, sport_score={sport_score}, food_score={food_score}, relax_score={relax_score}, nature_score={nature_score}, shopping_score={shopping_score}, romantic_score={romantic_score}, family_score={family_score} WHERE id={dest_id};
-        """ .format(culture_score=feature_scores["culture"], learn_score=feature_scores["learn"], action_score=feature_scores["action"], party_score=feature_scores["party"], sport_score=feature_scores["sport"], food_score=feature_scores["food"], relax_score=feature_scores["relax"], nature_score=feature_scores["nature"], shopping_score=feature_scores["shopping"], romantic_score=feature_scores["romantic"], family_score=feature_scores["family"], dest_id=dest_id))
+        poi_query = db_manager.query("""
+            SELECT COUNT(id) FROM poi WHERE destination_id = {dest_id} AND category_id IN {cats}
+            """.format(dest_id=dest, cats=list_to_tuple(preferred_activities)))
+        similarity = poi_query[0][0]
+        return weight * similarity
+    return 0
 
 
-def getSimplifiedScore(score):
-    return 5 if score > 100 else score // 20
+def scores_recommender(pref_scores, dest_similarities):
+    pref_scores_similarities = {}
 
+    dests_query = db_manager.query("""
+    SELECT id, culture_score, learn_score, relax_score FROM destination WHERE id IN {dests}
+    """.format(dests=list_to_tuple(dest_similarities.keys())))
 
-def performDSCaseBasedRecommender2(prefScore, dests):
-    getAllViableDestsQuery = """
-  CREATE OR REPLACE VIEW viable_destination AS
-  SELECT id, name, latitude, longitude, ABS(culture_score - {culture_score}) + ABS(learn_score - {learn_score}) AS score FROM destination WHERE id IN {dests}
-  """ .format(culture_score=prefScore["culture"], learn_score=prefScore["learn"], dests=listToTuple(dests))
-    dbManager.query(getAllViableDestsQuery)
+    for dest_scores in dests_query:
+        pref_scores_similarity = abs(
+            pref_scores["culture"] - dest_scores[1]) + abs(pref_scores["learn"] - dest_scores[2]) + abs(pref_scores["relax"] - dest_scores[3])
+        pref_scores_similarities[dest_scores[0]] = pref_scores_similarity
 
-
-def getDestsFromFlights(flights):
-    dests = []
-    for i in range(0, len(flights)):
-        dests.append(flights[i]["id"])
-    return dests
+    return pref_scores_similarities

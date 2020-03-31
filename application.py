@@ -5,21 +5,21 @@ import sys
 import os
 import routes
 from config import application
-from config import dbManager
+from config import db_manager
 from config import config
 from werkzeug.middleware.profiler import ProfilerMiddleware
 from flask_cors import CORS
 
 config.configure_app(application)
-dbManager.connect(application)
+db_manager.connect(application)
 
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
 
 CORS(application)
 
-# application.wsgi_app = ProfilerMiddleware(
-#     application.wsgi_app, restrictions=[30])
+application.wsgi_app = ProfilerMiddleware(
+    application.wsgi_app, restrictions=[30])
 
 if __name__ == "__main__":
     application.run()
