@@ -1,3 +1,6 @@
+from config import db_manager
+
+
 def divide_round_up(n, d):
     return int((n + (d - 1))/d)
 
@@ -41,3 +44,12 @@ def get_list_of_values_from_list_of_dicts(d, k):
     for i in range(0, len(d)):
         l.append(d[i][k])
     return l
+
+
+def get_origin_code(origin):
+    if origin["type"] == "city":
+        origin_code_query = db_manager.query("""
+        SELECT city_code FROM destination WHERE id={origin_id}
+        """.format(origin_id=origin["id"]))
+        return origin_code_query[0][0]
+    return origin["id"]

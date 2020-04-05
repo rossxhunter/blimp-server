@@ -1,7 +1,7 @@
 from config import db_manager
 from apis import wikipedia, exchange_rates
 from flask.json import jsonify
-from util.util import list_to_tuple, listToStr, get_list_of_values_from_list_of_dicts
+from util.util import list_to_tuple, listToStr, get_list_of_values_from_list_of_dicts, get_origin_code
 from util.db_populate import populate_POI_details, populate_POI_table, add_codes, populate_destination_images
 from util.exceptions import NoResults
 from core import accommodation, flights
@@ -35,12 +35,12 @@ def calculate_destination(constraints, soft_prefs, pref_scores):
         ranked_dests = get_ranked_dests(
             dests_soft_prefs_similarities, dests_pref_scores_similarities)
 
-    dest_id, name, accommodation_options = select_dest_from_ranked_dests(
+    dest_id, name, flight_options, accommodation_options = select_dest_from_ranked_dests(
         dests, ranked_dests, constraints)
 
     wiki_entry = wikipedia.getWikiDescription(name)
     # return jsonify(name="London", wiki=wikipedia.getWikiDescription("London"), destId=2643743)
-    return {"name": name, "wiki": wiki_entry, "id": dest_id, "accommodation": accommodation_options}
+    return {"name": name, "wiki": wiki_entry, "id": dest_id, "flights": flight_options, "accommodation": accommodation_options}
 
 
 def get_ranked_dests(dests_soft_prefs_similarities, dests_pref_scores_similarities):
@@ -56,20 +56,29 @@ def add_to_viable_dests(dests, dests_soft_prefs_similarities, dests_pref_scores_
 
 
 def select_dest_from_ranked_dests(dests, ranked_dests, constraints):
-    for dest_id in ranked_dests:
+    num_no_flights = 0
+    for dest_id in ranked_dests[:3]:
         dest_code_query = db_manager.query("""
         SELECT city_code FROM destination WHERE id={dest_id}
         """.format(dest_id=dest_id))[0][0]
-        accommodation_options = accommodation.get_accommodation_options(dest_code_query, constraints["departure_date"], constraints["return_date"], constraints["travellers"],
-                                                                        constraints["accommodation_type"], constraints["accommodation_stars"], constraints["accommodation_amenities"], constraints["budget_currency"])
-        if destination_satisfies_budget(dests[dest_id]["price"], dest_id, constraints, accommodation_options):
-            dest_query = db_manager.query("""
-            SELECT name FROM destination WHERE id = {id}
-            """.format(id=dest_id))
-            return dest_id, dest_query[0][0], accommodation_options
+        flight_options = flights.get_direct_flights_from_origin_to_desintaion(
+            get_origin_code(constraints["origin"]), dest_code_query, constraints["departure_date"], constraints["return_date"], constraints["travellers"], constraints["budget_currency"])
+        if len(flight_options) == 0:
+            num_no_flights += 1
         else:
-            raise NoResults(
-                'Budget is too low')
+            accommodation_options = accommodation.get_accommodation_options(dest_code_query, constraints["departure_date"], constraints["return_date"], constraints["travellers"],
+                                                                            constraints["accommodation_type"], constraints["accommodation_stars"], constraints["accommodation_amenities"], constraints["budget_currency"])
+            if destination_satisfies_budget(dests[dest_id]["price"], dest_id, constraints, accommodation_options):
+                dest_query = db_manager.query("""
+                SELECT name FROM destination WHERE id = {id}
+                """.format(id=dest_id))
+                return dest_id, dest_query[0][0], flight_options, accommodation_options
+    if num_no_flights == 3:
+        raise NoResults(
+            'No flights available on these dates')
+    else:
+        raise NoResults(
+            'Budget is too low')
 
 
 def destination_satisfies_budget(flight_price, dest_id, constraints, accommodation_options):
@@ -113,6 +122,9 @@ def get_destination_from_city(id):
 
 def dests_from_constraints_recommender(constraints):
     dests = get_flyable_dests(constraints)
+    if len(dests) == 0:
+        raise NoResults(
+            'No flights available on these dates')
     # TODO: Perform constraint based stuff on dests here
     return dests
 

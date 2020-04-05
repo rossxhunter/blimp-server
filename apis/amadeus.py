@@ -32,9 +32,7 @@ def get_accommodation_for_destination(dest, check_in_date, check_out_date, trave
 def get_direct_flights_from_origin_to_desintaion(origin, dest, departure_date, return_date, travellers, currency):
     flights = amadeus.shopping.flight_offers_search.get(
         originLocationCode=origin, destinationLocationCode=dest, departureDate=departure_date, returnDate=return_date, adults=travellers["adults"], nonStop="true", currencyCode=currency).result
-    if len(flights["data"]) == 0:
-        raise NoResults(
-            'No flights found')
+
     f = open("data/flights_spec_data.txt", "w")
     f.write(json.dumps(flights) + "\n")
     f.close()

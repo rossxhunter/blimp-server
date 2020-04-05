@@ -10,6 +10,16 @@ def fetch_suggestions(suggestion):
         return fetch_activity_suggestions()
     elif suggestion == "currencies":
         return fetch_currency_suggestions()
+    elif suggestion == "explore":
+        return fetch_explore_suggestions()
+
+
+def fetch_explore_suggestions():
+    dest_names = ["Paris", "Madrid", "London", "New York", "Singapore"]
+    suggestions = []
+    for name in dest_names:
+        suggestions.append({"name": name})
+    return jsonify(suggestions)
 
 
 def fetch_currency_suggestions():

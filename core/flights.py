@@ -34,7 +34,8 @@ def get_flight_details(flight, journey):
     for point in points:
         selected_flights[point] = {}
         selected_flights[point]["airportCode"] = flight_segments[point]["iataCode"]
-        selected_flights[point]["terminal"] = flight_segments[point]["terminal"]
+        if "terminal" in flight_segments[point]:
+            selected_flights[point]["terminal"] = flight_segments[point]["terminal"]
         departure_date, departure_time = get_flight_date_and_time(
             flight_segments[point]["at"])
         selected_flights[point]["date"] = departure_date

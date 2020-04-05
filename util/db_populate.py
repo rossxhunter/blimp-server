@@ -5,7 +5,7 @@ from apis import wikipedia
 
 def populate_POI_details():
     dest_id = db_manager.query("""
-    SELECT id FROM viable_destination WHERE name="London"
+    SELECT id FROM viable_destination WHERE name="Moscow"
     """)[0][0]
     pois = db_manager.query("""
     SELECT id FROM poi WHERE destination_id="{dest_id} AND tip_count IS NULL"
@@ -23,7 +23,7 @@ def populate_POI_details():
 
 def populate_POI_table():
     dests = db_manager.query("""
-  SELECT id, latitude, longitude FROM viable_destination WHERE name="Florence"
+  SELECT id, latitude, longitude FROM viable_destination WHERE name="Moscow"
   """)
     arts_entertainment = "4d4b7104d754a06370d81259"
     event = "4d4b7105d754a06373d81259"

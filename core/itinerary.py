@@ -6,17 +6,17 @@ from util.util import divide_round_up, merge_dicts
 import apis.amadeus as amadeus
 
 
-def calculate_itinerary(destination, constraints, softPrefs, prefScores):
+def calculate_itinerary(destination, accommodation, constraints, softPrefs, prefScores):
     pois = get_POIs_for_destination(destination)
-    edges = get_durations(pois)
+    start_node = ("start", {
+        "latitude": accommodation["latitude"], "longitude": accommodation["longitude"], "score": 0, "popularity": 0, "rating": 0})
+
+    edges = get_durations(pois, start_node)
     B = 8 * 60 * 60
     T = 30000000
-    k = 5
+    k = 3
     # startTime = datetime(year=2020, month=2, day=28, hour=8)
-    # start_node = ("4ac51183f964a52049a020e3", pois["4ac51183f964a52049a020e3"])
-    start_node_id = next(iter(pois))
-    start_node = (start_node_id, pois[start_node_id])
-    del pois[start_node_id]
+
     P, times = multi_tour(
         pois, edges, B, k, start_node, T)
     visitDurations = [2*60*60] * len(pois)
@@ -102,17 +102,19 @@ def single_tour(pois, edges, budget, start_node):
     return (P, times)
 
 
-def get_durations(pois):
+def get_durations(pois, start_node):
+    all_pois = dict(pois)
+    all_pois[start_node[0]] = start_node[1]
     durations = {}
     missing = {}
-    poi_ids = pois.keys()
+    poi_ids = all_pois.keys()
     poi_ids_string = ", ".join('"{0}"'.format(p) for p in poi_ids)
     get_durations_query = db_manager.query("""
     SELECT start_id, end_id, driving_time FROM travel_time WHERE start_id IN ({start_ids}) AND end_id IN ({end_ids})
     ORDER BY start_id, end_id
     """ .format(start_ids=poi_ids_string, end_ids=poi_ids_string))
-    for p1 in pois.items():
-        for p2 in pois.items():
+    for p1 in all_pois.items():
+        for p2 in all_pois.items():
             missing[(p1[0], p2[0])] = (p1[1], p2[1])
     for d in get_durations_query:
         durations[(d[0], d[1])] = d[2]
@@ -166,9 +168,10 @@ def get_missing_durations(missing):
                 missing_coords_rev, missing_dests_subset, missing_sources_subset, True)
             new_durations = merge_dicts(new_durations_1, new_durations_2)
             new_durations_insert = get_new_durations_insert(new_durations)
-            insert_durations = db_manager.insert("""
-            REPLACE INTO travel_time (start_id, end_id, driving_time) VALUES {new_durations}
-            """ .format(new_durations=new_durations_insert))
+            if (len(new_durations_insert) != 0):
+                insert_durations = db_manager.insert("""
+                REPLACE INTO travel_time (start_id, end_id, driving_time) VALUES {new_durations}
+                """ .format(new_durations=new_durations_insert))
             durations = merge_dicts(durations, new_durations)
     return durations
 
@@ -192,8 +195,9 @@ def get_mapbox_durations(missing_coords, missing_subset_1, missing_subset_2, is_
 def get_new_durations_insert(durations):
     s = ""
     for d in durations.items():
-        s += "(\"" + str(d[0][0]) + "\",\"" + \
-            str(d[0][1]) + "\"," + str(d[1]) + ")" + ","
+        if (d[0][0] != "start" and d[0][1] != "start"):
+            s += "(\"" + str(d[0][0]) + "\",\"" + \
+                str(d[0][1]) + "\"," + str(d[1]) + ")" + ","
     if s.endswith(","):
         s = s[:-1]
     return s
