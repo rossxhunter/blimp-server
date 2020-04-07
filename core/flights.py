@@ -23,6 +23,8 @@ def get_direct_flights_from_origin_to_desintaion(origin, dest, departure_date, r
         details = {}
         details["outbound"] = get_flight_details(flight, 0)
         details["return"] = get_flight_details(flight, 1)
+        details["price"] = {"amount": float(
+            flight["price"]["total"]), "currency": flight["price"]["currency"]}
         flights_details.append(details)
     return flights_details
 
@@ -42,10 +44,10 @@ def get_flight_details(flight, journey):
         selected_flights[point]["time"] = departure_time
     selected_flights["carrierCode"] = flight_segments["carrierCode"]
     selected_flights["duration"] = flight_segments["duration"]
-    travaler_pricings = flight["travelerPricings"][0]
+    traveller_pricings = flight["travelerPricings"][0]
     selected_flights["price"] = {
         "amount": float(flight["price"]["total"])/2, "currency": flight["price"]["currency"]}
-    selected_flights["class"] = travaler_pricings["fareDetailsBySegment"][0]["cabin"]
+    selected_flights["class"] = traveller_pricings["fareDetailsBySegment"][0]["cabin"]
     return selected_flights
 
 

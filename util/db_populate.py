@@ -1,6 +1,16 @@
 from config import db_manager
 from apis import foursquare
 from apis import wikipedia
+from core import activities
+
+
+def populate_DB():
+    # add_codes()
+    # populate_POI_table()
+    # calculate_destination_scores()
+    # populate_POI_details()
+    # populate_destination_images()
+    return
 
 
 def populate_POI_details():
@@ -35,8 +45,8 @@ def populate_POI_table():
     poisForDB = []
     for dest in dests:
 
-        pois = foursquare.get_nearby_POIs(
-            str(dest[1]), str(dest[2]), cats)["response"]
+        pois = activities.get_nearby_POIs(
+            str(dest[1]), str(dest[2]), cats)
         if "groups" in pois:
             pois = pois["groups"][0]["items"]
             for poi in pois:

@@ -8,7 +8,7 @@ import util.suggestions as suggestions
 
 @application.route('/')
 def root():
-    return "Home!"
+    return "You've reached the root of the API! Nothing interesing here..."
 
 
 @application.route('/holiday', methods=['GET'])
@@ -17,14 +17,6 @@ def get_holiday():
     soft_prefs = json.loads(request.args.get('softprefs'))
     pref_scores = json.loads(request.args.get('pref_scores'))
     return holiday.get_holiday(constraints, soft_prefs, pref_scores)
-
-
-# @application.route('/destination', methods=['GET'])
-# def get_destination():
-#     constraints = json.loads(request.args.get('constraints'))
-#     soft_prefs = json.loads(request.args.get('softprefs'))
-#     pref_scores = json.loads(request.args.get('pref_scores'))
-#     return destination.calculate_destination(constraints, soft_prefs, pref_scores)
 
 
 @application.route('/suggestions', methods=['GET'])

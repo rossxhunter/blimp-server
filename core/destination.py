@@ -8,11 +8,6 @@ from core import accommodation, flights
 
 
 def calculate_destination(constraints, soft_prefs, pref_scores):
-    # add_codes()
-    # populate_POI_table()
-    # calculate_destination_scores()
-    # populate_POI_details()
-    # populate_destination_images()
     dests = dests_from_constraints_recommender(constraints)
     if ("destination" in constraints):
         if (constraints["destination"]["type"] == "city"):
@@ -39,7 +34,7 @@ def calculate_destination(constraints, soft_prefs, pref_scores):
         dests, ranked_dests, constraints)
 
     wiki_entry = wikipedia.getWikiDescription(name)
-    # return jsonify(name="London", wiki=wikipedia.getWikiDescription("London"), destId=2643743)
+
     return {"name": name, "wiki": wiki_entry, "id": dest_id, "flights": flight_options, "accommodation": accommodation_options}
 
 
@@ -68,7 +63,7 @@ def select_dest_from_ranked_dests(dests, ranked_dests, constraints):
         else:
             accommodation_options = accommodation.get_accommodation_options(dest_code_query, constraints["departure_date"], constraints["return_date"], constraints["travellers"],
                                                                             constraints["accommodation_type"], constraints["accommodation_stars"], constraints["accommodation_amenities"], constraints["budget_currency"])
-            if destination_satisfies_budget(dests[dest_id]["price"], dest_id, constraints, accommodation_options):
+            if destination_satisfies_budget(flight_options[0]["price"], dest_id, constraints, accommodation_options):
                 dest_query = db_manager.query("""
                 SELECT name FROM destination WHERE id = {id}
                 """.format(id=dest_id))
@@ -89,12 +84,12 @@ def destination_satisfies_budget(flight_price, dest_id, constraints, accommodati
     num_travellers = constraints["travellers"]["adults"] + \
         constraints["travellers"]["children"]
     flight_converted_price = float(flight_price["amount"]) * \
-        currency_conversion * float(num_travellers)
+        currency_conversion
 
     for hotel in accommodation_options:
         hotel_price = hotel["price"]["amount"]
         total_price = flight_converted_price + hotel_price
-        if total_price < constraints["budget_leq"]:
+        if total_price <= constraints["budget_leq"]:
             return True
     return False
 
@@ -148,7 +143,13 @@ def get_flyable_dests(constraints):
 
 def get_airport_and_city_code(dest):
     if dest["type"] == "airport":
-        return dest["id"]
+        dests_for_airport_codes = db_manager.query("""
+        SELECT destination.city_code
+        FROM destination
+        JOIN airports ON destination.name = airports.municipality AND destination.country_code = airports.iso_country
+        WHERE airports.iata_code = "{airport_code}"
+        """.format(airport_code=dest["id"]))
+        return dests_for_airport_codes[0][0]
     elif dest["type"] == "city":
         city_code_query = db_manager.query("""
         SELECT city_code FROM destination WHERE id = "{id}"

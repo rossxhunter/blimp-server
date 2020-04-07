@@ -5,10 +5,11 @@ from apis import amadeus
 from core.destination import calculate_destination
 from core import accommodation, flights
 from util.util import get_origin_code
+from util.db_populate import populate_DB
 
 
 def get_holiday(constraints, softPrefs, prefScores):
-
+    populate_DB()
     destination = calculate_destination(constraints, softPrefs, prefScores)
 
     dest_code_query = db_manager.query("""
@@ -25,34 +26,26 @@ def get_holiday(constraints, softPrefs, prefScores):
 
     origin_code = get_origin_code(constraints["origin"])
 
-    # travel_options = get_travel_options(
-    #     origin_code, dest_id_for_travel, constraints["departure_date"], constraints["return_date"], constraints["travellers"], constraints["budget_currency"])
-    # accommodation_options = get_accommodation_options(
-    #     city_id, constraints["departure_date"], constraints["return_date"], constraints["travellers"], constraints["accommodation_type"], constraints["accommodation_stars"], constraints["accommodation_amenities"], constraints["budget_currency"])
-
     accommodation_options = destination["accommodation"]
 
     travel_options = destination["flights"]
 
     travel, accommodation = choose_travel_and_accommodation(
-        travel_options, accommodation_options)
+        travel_options, accommodation_options, constraints["budget_leq"])
 
     itinerary = calculate_itinerary(
-        destination["id"], accommodation, constraints, softPrefs, prefScores)
+        destination["id"], travel, accommodation, constraints, softPrefs, prefScores)
     return jsonify(name=destination["name"], wiki=destination["wiki"], destId=destination["id"], itinerary=itinerary, travel=travel, accommodation=accommodation)
 
 
-def choose_travel_and_accommodation(travel_options, accommodation_options):
-    return travel_options[0], accommodation_options[2]
-
-
-def get_travel_options(origin, dest, departure_date, return_date, travellers, currency):
-    flight_options = flights.get_direct_flights_from_origin_to_desintaion(
-        origin, dest, departure_date, return_date, travellers, currency)
-    return flight_options
-
-
-def get_accommodation_options(dest, check_in_date, check_out_date, travellers, accommodation_type, accommodation_stars, accommodation_amenities, currency):
-    accommodation_options = accommodation.get_accommodation_options(
-        dest, check_in_date, check_out_date, travellers, accommodation_type, accommodation_stars, accommodation_amenities, currency)
-    return accommodation_options
+def choose_travel_and_accommodation(travel_options, accommodation_options, budget):
+    best_score = 0
+    for t in travel_options:
+        print(t["price"])
+    for acc in accommodation_options:
+        score = acc["stars"]
+        if score > best_score:
+            if travel_options[0]["price"]["amount"] + acc["price"]["amount"] <= budget:
+                best_score = score
+                best_combo = (travel_options[0], acc)
+    return best_combo

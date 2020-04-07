@@ -6,19 +6,20 @@ from util.util import divide_round_up, merge_dicts
 import apis.amadeus as amadeus
 
 
-def calculate_itinerary(destination, accommodation, constraints, softPrefs, prefScores):
+def calculate_itinerary(destination, travel, accommodation, constraints, softPrefs, prefScores):
     pois = get_POIs_for_destination(destination)
     start_node = ("start", {
         "latitude": accommodation["latitude"], "longitude": accommodation["longitude"], "score": 0, "popularity": 0, "rating": 0})
 
     edges = get_durations(pois, start_node)
-    B = 8 * 60 * 60
+
     T = 30000000
-    k = 3
-    # startTime = datetime(year=2020, month=2, day=28, hour=8)
+
+    budgets, start_times = get_daily_time_budgets_and_start_times(travel)
+    k = len(budgets)
 
     P, times = multi_tour(
-        pois, edges, B, k, start_node, T)
+        pois, edges, budgets, start_times, k, start_node, T)
     visitDurations = [2*60*60] * len(pois)
     itinerary = {}
     for i in range(0, len(P)):
@@ -30,8 +31,45 @@ def calculate_itinerary(destination, accommodation, constraints, softPrefs, pref
     return itinerary
 
 
-def multi_tour(pois, edges, budget, num_days, start_node, target_value):
-    visitDurations = [2*60*60] * len(pois)
+def get_daily_time_budgets_and_start_times(travel):
+    budgets = []
+    start_times = []
+    time_from_airport_to_hotel = 1.5 * 60 * 60
+    time_from_hotel_to_airport = 3 * 60 * 60
+    standard_budget = 8 * 60 * 60
+    arrival_date = datetime.strptime(
+        travel["outbound"]["departure"]["date"], "%d %B")
+    departure_date = datetime.strptime(
+        travel["return"]["departure"]["date"], "%d %B")
+    stay_duration = departure_date.day - arrival_date.day + 1
+    start_time = 8 * 60 * 60
+    end_time = 16 * 60 * 60
+    for i in range(0, stay_duration):
+        if i == 0:
+            arrival_time = datetime.strptime(
+                travel["outbound"]["arrival"]["time"], "%H:%M")
+            arrival_seconds = (arrival_time.hour * 60 * 60) + \
+                (arrival_time.minute * 60) + time_from_airport_to_hotel
+            b = end_time - arrival_seconds
+            start_times.append(arrival_seconds)
+        elif i == stay_duration - 1:
+            departure_time = datetime.strptime(
+                travel["return"]["departure"]["time"], "%H:%M")
+            departure_seconds = (departure_time.hour * 60 *
+                                 60) + (departure_time.minute * 60) - time_from_hotel_to_airport
+            b = departure_seconds - start_time
+            start_times.append(start_time)
+        else:
+            b = standard_budget
+            start_times.append(start_time)
+        if b > 0:
+            budgets.append(min(b, standard_budget))
+        else:
+            budgets.append(0)
+    return budgets, start_times
+
+
+def multi_tour(pois, edges, budgets, start_times, num_days, start_node, target_value):
     P_star = []
     t = []
     for poi in pois.items():
@@ -45,7 +83,8 @@ def multi_tour(pois, edges, budget, num_days, start_node, target_value):
     if q > num_days:
         return (P_star, t)
     for i in range(0, (num_days-q)):
-        P, t_P = single_tour(pois, edges, budget, start_node)
+        P, t_P = single_tour(
+            pois, edges, budgets[i], start_times[i], start_node)
         P, t_P = truncate_tour(P, t_P, target_value)
         P_star.append(P)
         t.append(t_P)
@@ -69,7 +108,7 @@ def truncate_tour(P, t_P, target_value):
     return (P, t_P)
 
 
-def single_tour(pois, edges, budget, start_node):
+def single_tour(pois, edges, budget, start_time, start_node):
     P_star = [start_node]
     P = []
     while True:
@@ -91,7 +130,7 @@ def single_tour(pois, edges, budget, start_node):
 
     visitDurations = [2*60*60] * len(P)
 
-    times = [0]
+    times = [start_time]
     for p in range(0, len(P) - 1):
         if p == 0:
             times.append(times[p] + get_specific_edge(edges, P[p][0],
