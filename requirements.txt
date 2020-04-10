@@ -30,7 +30,6 @@ msgpack==1.0.0
 packaging==20.1
 pluggy==0.13.1
 polyline==1.4.0
-populartimes==2.0
 py==1.8.1
 pycodestyle==2.5.0
 PyMySQL==0.9.3
