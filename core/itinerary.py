@@ -26,7 +26,7 @@ def calculate_itinerary(destination, travel, accommodation, constraints, softPre
         day_itinerary = []
         for j in range(0, len(P[i])):
             day_itinerary.append(
-                {"name": P[i][j][1]["name"], "description": P[i][j][1]["description"], "bestPhoto": P[i][j][1]["best_photo"], "startTime": times[i][j], "duration": visitDurations[0]})
+                {"name": P[i][j][1]["name"], "description": P[i][j][1]["description"], "rating": P[i][j][1]["rating"], "bestPhoto": P[i][j][1]["best_photo"], "category": P[i][j][1]["category"], "startTime": times[i][j], "duration": visitDurations[0]})
         itinerary[i] = day_itinerary
     return itinerary
 
@@ -294,7 +294,7 @@ def TSP(pois, edges):
 
 def get_POIs_for_destination(destination):
     getPOIsQuery = db_manager.query("""
-    SELECT poi.id,poi.name,poi.latitude,poi.longitude,poi.tip_count,poi.rating,poi.description,poi.best_photo,categories.culture_score,categories.learn_score,categories.relax_score FROM poi
+    SELECT poi.id,poi.name,poi.latitude,poi.longitude,poi.tip_count,poi.rating,poi.description,poi.best_photo,categories.name,categories.culture_score,categories.learn_score,categories.relax_score FROM poi
     INNER JOIN categories ON poi.category_id = categories.id 
     WHERE poi.destination_id={destination}
     ORDER BY poi.id
@@ -302,7 +302,7 @@ def get_POIs_for_destination(destination):
     """ .format(destination=destination))
     pois = {}
     for poi in getPOIsQuery:
-        score = poi[8] + poi[9] + poi[10]
+        score = poi[9] + poi[10] + poi[11]
         pois[poi[0]] = {"name": poi[1],
-                        "latitude": poi[2], "longitude": poi[3], "score": score, "popularity": poi[4] if poi[4] != None else 0, "rating": poi[5] if poi[5] != None else 0, "description": poi[6], "best_photo": poi[7]}
+                        "latitude": poi[2], "longitude": poi[3], "score": score, "popularity": poi[4] if poi[4] != None else 0, "rating": poi[5] if poi[5] != None else 0, "description": poi[6], "best_photo": poi[7], "category": poi[8]}
     return pois

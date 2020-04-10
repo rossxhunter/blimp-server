@@ -7,4 +7,5 @@ def getMatrix(features, method, sources=None, destinations=None):
     print(str(destinations))
     response = service.matrix(
         features, profile='mapbox/' + method, sources=sources, destinations=destinations)
+    print(response)
     return response

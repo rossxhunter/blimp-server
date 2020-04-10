@@ -1,6 +1,7 @@
 from config import db_manager
 from flask.json import jsonify
 from util.util import list_to_tuple
+from apis import google_places
 
 
 def fetch_suggestions(suggestion):

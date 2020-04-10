@@ -15,7 +15,7 @@ def populate_DB():
 
 def populate_POI_details():
     dest_id = db_manager.query("""
-    SELECT id FROM viable_destination WHERE name="Moscow"
+    SELECT id FROM destination WHERE name="Paris"
     """)[0][0]
     pois = db_manager.query("""
     SELECT id FROM poi WHERE destination_id="{dest_id} AND tip_count IS NULL"
@@ -33,7 +33,7 @@ def populate_POI_details():
 
 def populate_POI_table():
     dests = db_manager.query("""
-  SELECT id, latitude, longitude FROM viable_destination WHERE name="Moscow"
+  SELECT id, latitude, longitude FROM destination WHERE name="Paris"
   """)
     arts_entertainment = "4d4b7104d754a06370d81259"
     event = "4d4b7105d754a06373d81259"
@@ -44,7 +44,6 @@ def populate_POI_table():
         "," + outdoors_recreation + "," + professional_other
     poisForDB = []
     for dest in dests:
-
         pois = activities.get_nearby_POIs(
             str(dest[1]), str(dest[2]), cats)
         if "groups" in pois:
@@ -55,7 +54,7 @@ def populate_POI_table():
                             "latitude": poi["location"]["lat"], "longitude": poi["location"]["lng"], "category_id": poi["categories"][0]["id"], "destination_id": dest[0]}
                 db_manager.insert("""
                 REPLACE INTO poi (id, name, latitude, longitude, category_id, destination_id)
-                VALUES (\"{id}\", \"{name}\", {latitude}, {longitude}, \"{category_id}\", {destination_id});
+                VALUES ("{id}", "{name}", {latitude}, {longitude}, "{category_id}", {destination_id});
                 """.format(id=poiForDB["id"], name=poiForDB["name"].replace('"', '\\"'),  latitude=poiForDB["latitude"], longitude=poiForDB["longitude"], category_id=poiForDB["category_id"], destination_id=poiForDB["destination_id"]))
             print("DONE!")
 

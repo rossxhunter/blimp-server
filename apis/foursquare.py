@@ -32,6 +32,7 @@ def get_POI_details(id):
         client_id=client_id,
         client_secret=client_secret,
         v=v,
+        locale="en",
     )
     resp = requests.get(url=base_url + id, params=params)
     data = json.loads(resp.text)
@@ -64,6 +65,3 @@ def catsToCSVHelper(cats, csv, parent):
                    cat["shortName"] + "," + cat["icon"]["prefix"] + "," + cat["icon"]["suffix"] + "," + parent)
         catsToCSVHelper(cat["categories"], csv, cat["id"])
     return csv
-
-
-# catsToCSV()

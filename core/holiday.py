@@ -30,22 +30,22 @@ def get_holiday(constraints, softPrefs, prefScores):
 
     travel_options = destination["flights"]
 
+    accommodation_options.sort(
+        key=get_accommodation_score, reverse=True)
+
     travel, accommodation = choose_travel_and_accommodation(
         travel_options, accommodation_options, constraints["budget_leq"])
 
     itinerary = calculate_itinerary(
         destination["id"], travel, accommodation, constraints, softPrefs, prefScores)
-    return jsonify(name=destination["name"], wiki=destination["wiki"], destId=destination["id"], itinerary=itinerary, travel=travel, accommodation=accommodation)
+    return jsonify(name=destination["name"], wiki=destination["wiki"], destId=destination["id"], itinerary=itinerary, travel=travel, accommodation=accommodation, all_travel=travel_options, all_accommodation=accommodation_options)
 
 
-def choose_travel_and_accommodation(travel_options, accommodation_options, budget):
-    best_score = 0
-    for t in travel_options:
-        print(t["price"])
-    for acc in accommodation_options:
-        score = acc["stars"]
-        if score > best_score:
-            if travel_options[0]["price"]["amount"] + acc["price"]["amount"] <= budget:
-                best_score = score
-                best_combo = (travel_options[0], acc)
-    return best_combo
+def get_accommodation_score(acc):
+    return acc["stars"]
+
+
+def choose_travel_and_accommodation(travel_options, ranked_accommodation_options, budget):
+    for acc in ranked_accommodation_options:
+        if travel_options[0]["price"]["amount"] + acc["price"]["amount"] <= budget:
+            return (travel_options[0], acc)
