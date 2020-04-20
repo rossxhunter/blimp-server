@@ -2,6 +2,7 @@ from config import db_manager
 from flask.json import jsonify
 from util.util import list_to_tuple
 from apis import google_places
+import random
 
 
 def fetch_suggestions(suggestion):
@@ -16,10 +17,14 @@ def fetch_suggestions(suggestion):
 
 
 def fetch_explore_suggestions():
-    dest_names = ["Paris", "Madrid", "London", "New York", "Singapore"]
+    dests_query = db_manager.query("""
+    SELECT name, image_url FROM destination WHERE image_url IS NOT NULL AND culture_score IS NOT NULL AND culture_score > 0 ORDER BY population DESC LIMIT 50
+    """)
+    dests = list(dests_query)
+    random.shuffle(dests)
     suggestions = []
-    for name in dest_names:
-        suggestions.append({"name": name})
+    for d in dests[:10]:
+        suggestions.append({"name": d[0], "imageURL": d[1]})
     return jsonify(suggestions)
 
 

@@ -1,5 +1,5 @@
 from config import db_manager
-from core.itinerary import calculate_itinerary
+from core.itinerary import calculate_itinerary, get_POIs_for_destination
 from flask import jsonify
 from apis import amadeus
 from core.destination import calculate_destination
@@ -8,9 +8,10 @@ from util.util import get_origin_code
 from util.db_populate import populate_DB
 
 
-def get_holiday(constraints, softPrefs, prefScores):
+def get_holiday(constraints, softPrefs, prefScores, feedback=None):
     populate_DB()
-    destination = calculate_destination(constraints, softPrefs, prefScores)
+    destination = calculate_destination(
+        constraints, softPrefs, prefScores, feedback)
 
     dest_code_query = db_manager.query("""
     SELECT city_code FROM destination WHERE id={dest_id}
@@ -34,18 +35,36 @@ def get_holiday(constraints, softPrefs, prefScores):
         key=get_accommodation_score, reverse=True)
 
     travel, accommodation = choose_travel_and_accommodation(
-        travel_options, accommodation_options, constraints["budget_leq"])
+        travel_options, accommodation_options, constraints["budget_leq"], feedback)
 
+    pois = get_POIs_for_destination(destination["id"])
     itinerary = calculate_itinerary(
-        destination["id"], travel, accommodation, constraints, softPrefs, prefScores)
-    return jsonify(name=destination["name"], wiki=destination["wiki"], destId=destination["id"], itinerary=itinerary, travel=travel, accommodation=accommodation, all_travel=travel_options, all_accommodation=accommodation_options)
+        dict(pois), travel, accommodation, constraints, softPrefs, prefScores)
+
+    pois_list = get_pois_list(pois)
+
+    return jsonify(name=destination["name"], wiki=destination["wiki"], imageURL=destination["image_url"], destId=destination["id"], itinerary=itinerary, travel=travel, accommodation=accommodation, all_travel=travel_options, all_accommodation=accommodation_options, all_activities=pois_list)
+
+
+def get_pois_list(pois):
+    poi_items = pois.items()
+    l = []
+    for poi_item in poi_items:
+        m = poi_item[1]
+        m["id"] = poi_item[0]
+        l.append(m)
+    return l
 
 
 def get_accommodation_score(acc):
     return acc["stars"]
 
 
-def choose_travel_and_accommodation(travel_options, ranked_accommodation_options, budget):
+def choose_travel_and_accommodation(travel_options, ranked_accommodation_options, budget, feedback):
+    maximum_price = budget
+    if feedback != None and feedback["type"] == "cheaper":
+        maximum_price = min(budget, feedback["previous_price"])
+
     for acc in ranked_accommodation_options:
-        if travel_options[0]["price"]["amount"] + acc["price"]["amount"] <= budget:
+        if travel_options[0]["price"]["amount"] + acc["price"]["amount"] < maximum_price:
             return (travel_options[0], acc)

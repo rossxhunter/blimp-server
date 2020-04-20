@@ -2,6 +2,7 @@ from config import db_manager
 from apis import foursquare
 from apis import wikipedia
 from core import activities
+from apis import pixabay
 
 
 def populate_DB():
@@ -33,8 +34,8 @@ def populate_POI_details():
 
 def populate_POI_table():
     dests = db_manager.query("""
-  SELECT id, latitude, longitude FROM destination WHERE name="Paris"
-  """)
+    SELECT id, latitude, longitude FROM destination WHERE city_code IS NOT NULL ORDER BY population DESC LIMIT 500
+    """)
     arts_entertainment = "4d4b7104d754a06370d81259"
     event = "4d4b7105d754a06373d81259"
     nightlife_spot = "4d4b7105d754a06376d81259"
@@ -50,8 +51,11 @@ def populate_POI_table():
             pois = pois["groups"][0]["items"]
             for poi in pois:
                 poi = poi["venue"]
+                category = "4d4b7105d754a06375d81259"
+                if len(poi["categories"]) != 0:
+                    category = poi["categories"][0]["id"]
                 poiForDB = {"id": poi["id"], "name": poi["name"],
-                            "latitude": poi["location"]["lat"], "longitude": poi["location"]["lng"], "category_id": poi["categories"][0]["id"], "destination_id": dest[0]}
+                            "latitude": poi["location"]["lat"], "longitude": poi["location"]["lng"], "category_id": category, "destination_id": dest[0]}
                 db_manager.insert("""
                 REPLACE INTO poi (id, name, latitude, longitude, category_id, destination_id)
                 VALUES ("{id}", "{name}", {latitude}, {longitude}, "{category_id}", {destination_id});
@@ -61,23 +65,23 @@ def populate_POI_table():
 
 def add_codes():
     codes_query = db_manager.query("""
-    SELECT id,name FROM city_code;
+    SELECT geonameid, name FROM destination_name WHERE isolanguage = "iata"
     """)
     for code in codes_query:
         ins = db_manager.insert("""
-        UPDATE destination SET city_code = \"{city_code}\" WHERE name = \"{city_name}\"                       
-        """.format(city_code=code[0], city_name=code[1]))
+        UPDATE destination SET city_code = "{city_code}" WHERE id = {geoname_id}
+        """.format(city_code=code[1], geoname_id=code[0]))
 
 
 def populate_destination_images():
     destsQuery = db_manager.query("""
-    SELECT id,name FROM destination ORDER BY population DESC LIMIT 10
+    SELECT id,name FROM destination WHERE city_code IS NOT NULL AND culture_score IS NOT NULL AND culture_score > 0 ORDER BY population DESC LIMIT 50
     """)
-    for dest_id, dest_name in destsQuery:
-        image = wikipedia.get_wiki_image(dest_name)
-        destImageInsert = db_manager.insert("""
+    urls = pixabay.fetch_images(destsQuery)
+    for dest_id, dest_url in urls:
+        image_insert = db_manager.insert("""
         UPDATE destination SET image_url = "{image_url}" WHERE id = {dest_id}
-        """.format(image_url=image, dest_id=dest_id))
+        """.format(image_url=dest_url, dest_id=dest_id))
 
 
 def calculate_destination_scores():

@@ -6,13 +6,15 @@ from util.db_populate import populate_POI_details, populate_POI_table, add_codes
 from util.exceptions import NoResults
 from core import accommodation, flights
 
+NUM_DEST_ATTEMPTS = 3
 
-def calculate_destination(constraints, soft_prefs, pref_scores):
+
+def calculate_destination(constraints, soft_prefs, pref_scores, feedback):
     dests = dests_from_constraints_recommender(constraints)
     if ("destination" in constraints):
         if (constraints["destination"]["type"] == "city"):
             dest_id, name = get_destination_from_city(
-                constraints["destination"]["id"])
+                constraints["destination"]["id"], dests)
 
         elif (constraints["destination"]["type"] == "airport"):
             dest_id, name = get_destination_from_airport(
@@ -25,17 +27,28 @@ def calculate_destination(constraints, soft_prefs, pref_scores):
         dests_soft_prefs_similarities = prefs_recommender(soft_prefs, dest_ids)
         dests_pref_scores_similarities = scores_recommender(
             pref_scores, dests_soft_prefs_similarities)
-        add_to_viable_dests(
-            dest_ids, dests_soft_prefs_similarities, dests_pref_scores_similarities)
+        # add_to_viable_dests(
+        #     dest_ids, dests_soft_prefs_similarities, dests_pref_scores_similarities)
         ranked_dests = get_ranked_dests(
             dests_soft_prefs_similarities, dests_pref_scores_similarities)
 
     dest_id, name, flight_options, accommodation_options = select_dest_from_ranked_dests(
-        dests, ranked_dests, constraints)
+        dests, ranked_dests, constraints, feedback)
 
     wiki_entry = wikipedia.getWikiDescription(name)
 
-    return {"name": name, "wiki": wiki_entry, "id": dest_id, "flights": flight_options, "accommodation": accommodation_options}
+    image_url = get_dest_image_url(dest_id)
+
+    return {"name": name, "wiki": wiki_entry, "image_url": image_url, "id": dest_id, "flights": flight_options, "accommodation": accommodation_options}
+
+
+def get_dest_image_url(dest_id):
+    q = db_manager.query("""
+    SELECT image_url FROM destination WHERE id = {dest_id}
+    """.format(dest_id=dest_id))
+    if len(q) == 0:
+        return None
+    return q[0][0]
 
 
 def get_ranked_dests(dests_soft_prefs_similarities, dests_pref_scores_similarities):
@@ -50,9 +63,11 @@ def add_to_viable_dests(dests, dests_soft_prefs_similarities, dests_pref_scores_
         """.format(id=dest, soft_prefs_sim=dests_soft_prefs_similarities[dest], pref_scores_sim=dests_pref_scores_similarities[dest]))
 
 
-def select_dest_from_ranked_dests(dests, ranked_dests, constraints):
+def select_dest_from_ranked_dests(dests, ranked_dests, constraints, feedback):
     num_no_flights = 0
-    for dest_id in ranked_dests[:3]:
+    for dest_id in ranked_dests[:NUM_DEST_ATTEMPTS]:
+        if feedback != None and dest_id == feedback["previous_dest_id"] and "destination" not in constraints:
+            continue
         dest_code_query = db_manager.query("""
         SELECT city_code FROM destination WHERE id={dest_id}
         """.format(dest_id=dest_id))[0][0]
@@ -63,12 +78,13 @@ def select_dest_from_ranked_dests(dests, ranked_dests, constraints):
         else:
             accommodation_options = accommodation.get_accommodation_options(dest_code_query, constraints["departure_date"], constraints["return_date"], constraints["travellers"],
                                                                             constraints["accommodation_type"], constraints["accommodation_stars"], constraints["accommodation_amenities"], constraints["budget_currency"])
-            if destination_satisfies_budget(flight_options[0]["price"], dest_id, constraints, accommodation_options):
-                dest_query = db_manager.query("""
-                SELECT name FROM destination WHERE id = {id}
-                """.format(id=dest_id))
-                return dest_id, dest_query[0][0], flight_options, accommodation_options
-    if num_no_flights == 3:
+            if destination_satisfies_budget(flight_options[0]["price"], dest_id, constraints, accommodation_options, constraints["budget_leq"]):
+                if destination_satisfies_feedback(dest_id, flight_options, accommodation_options, ranked_dests, constraints, feedback):
+                    dest_query = db_manager.query("""
+                    SELECT name FROM destination WHERE id = {id}
+                    """.format(id=dest_id))
+                    return dest_id, dest_query[0][0], flight_options, accommodation_options
+    if num_no_flights == len(ranked_dests):
         raise NoResults(
             'No flights available on these dates')
     else:
@@ -76,7 +92,14 @@ def select_dest_from_ranked_dests(dests, ranked_dests, constraints):
             'Budget is too low')
 
 
-def destination_satisfies_budget(flight_price, dest_id, constraints, accommodation_options):
+def destination_satisfies_feedback(dest_id, flight_options, accommodation_options, ranked_dests, constraints, feedback):
+    if feedback == None:
+        return True
+    if feedback["type"] == "cheaper":
+        return destination_satisfies_budget(flight_options[0]["price"], dest_id, constraints, accommodation_options, feedback["previous_price"])
+
+
+def destination_satisfies_budget(flight_price, dest_id, constraints, accommodation_options, budget):
     currency_conversion = 1
     if flight_price["currency"] != constraints["budget_currency"]:
         currency_conversion = exchange_rates.get_exchange_rate(
@@ -89,30 +112,32 @@ def destination_satisfies_budget(flight_price, dest_id, constraints, accommodati
     for hotel in accommodation_options:
         hotel_price = hotel["price"]["amount"]
         total_price = flight_converted_price + hotel_price
-        if total_price <= constraints["budget_leq"]:
+        if total_price < budget:
             return True
     return False
 
 
 def get_destination_from_airport(code):
     getDestQuery = db_manager.query("""
-            SELECT id,name FROM viable_destinations WHERE name IN 
-            (SELECT municipality FROM airports WHERE iata_code="{code}")
-            """.format(code=code))
-    if (len(getDestQuery) == 0):
-        raise NoResults(
-            'Cannot fly to this airport')
+    SELECT destination.id, destination.name FROM destination 
+    JOIN airports ON airports.municipality = destination.name 
+        AND airports.iso_country = destination.country_code
+    WHERE airports.iata_code = "{code}"
+    """.format(code=code))
     return getDestQuery[0][0], getDestQuery[0][1]
 
 
-def get_destination_from_city(id):
-    getDestQuery = db_manager.query("""
-            SELECT id,name FROM viable_destinations WHERE id = "{id}"
-            """.format(id=id))
-    if (len(getDestQuery) == 0):
-        raise NoResults(
-            'Cannot fly to this destination')
-    return getDestQuery[0][0], getDestQuery[0][1]
+def get_destination_from_city(dest_id, dests):
+    # getDestQuery = db_manager.query("""
+    #         SELECT id,name FROM viable_destinations WHERE id = "{id}"
+    #         """.format(id=id))
+    # if (len(getDestQuery) == 0):
+    #     raise NoResults(
+    #         'Cannot fly to this destination')
+    # return getDestQuery[0][0], getDestQuery[0][1]
+    if dest_id in dests:
+        return dest_id, dests[dest_id]["name"]
+    raise NoResults('Cannot fly to this destination')
 
 
 def dests_from_constraints_recommender(constraints):
@@ -182,10 +207,11 @@ def scores_recommender(pref_scores, dest_similarities):
     pref_scores_similarities = {}
 
     dests_query = db_manager.query("""
-    SELECT id, culture_score, learn_score, relax_score FROM destination WHERE id IN {dests}
+    SELECT id, culture_score, learn_score, relax_score FROM destination WHERE id IN {dests} AND culture_score IS NOT NULL
     """.format(dests=list_to_tuple(dest_similarities.keys())))
 
     for dest_scores in dests_query:
+        print(dest_scores)
         pref_scores_similarity = abs(
             pref_scores["culture"] - dest_scores[1]) + abs(pref_scores["learn"] - dest_scores[2]) + abs(pref_scores["relax"] - dest_scores[3])
         pref_scores_similarities[dest_scores[0]] = pref_scores_similarity

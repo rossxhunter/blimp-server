@@ -4,10 +4,10 @@ from config import db_manager
 from datetime import datetime, timedelta
 from util.util import divide_round_up, merge_dicts
 import apis.amadeus as amadeus
+from util.exceptions import NoResults
 
 
-def calculate_itinerary(destination, travel, accommodation, constraints, softPrefs, prefScores):
-    pois = get_POIs_for_destination(destination)
+def calculate_itinerary(pois, travel, accommodation, constraints, softPrefs, prefScores, poi_order=None, day=None):
     start_node = ("start", {
         "latitude": accommodation["latitude"], "longitude": accommodation["longitude"], "score": 0, "popularity": 0, "rating": 0})
 
@@ -16,17 +16,23 @@ def calculate_itinerary(destination, travel, accommodation, constraints, softPre
     T = 30000000
 
     budgets, start_times = get_daily_time_budgets_and_start_times(travel)
-    k = len(budgets)
+
+    if poi_order == None:
+        k = len(budgets)
+    else:
+        k = 1
+        budgets = [budgets[day]]
+        start_times = [start_times[day]]
 
     P, times = multi_tour(
-        pois, edges, budgets, start_times, k, start_node, T)
-    visitDurations = [2*60*60] * len(pois)
+        pois, edges, budgets, start_times, k, start_node, T, poi_order)
+    visitDuration = 2*60*60
     itinerary = {}
     for i in range(0, len(P)):
         day_itinerary = []
         for j in range(0, len(P[i])):
             day_itinerary.append(
-                {"name": P[i][j][1]["name"], "description": P[i][j][1]["description"], "rating": P[i][j][1]["rating"], "bestPhoto": P[i][j][1]["best_photo"], "category": P[i][j][1]["category"], "startTime": times[i][j], "duration": visitDurations[0]})
+                {"id": P[i][j][0], "name": P[i][j][1]["name"], "description": P[i][j][1]["description"], "latitude": P[i][j][1]["latitude"], "longitude": P[i][j][1]["longitude"], "score": P[i][j][1]["score"], "rating": P[i][j][1]["rating"], "popularity": P[i][j][1]["popularity"], "bestPhoto": P[i][j][1]["bestPhoto"], "category": P[i][j][1]["category"], "startTime": times[i][j], "duration": visitDuration})
         itinerary[i] = day_itinerary
     return itinerary
 
@@ -69,7 +75,7 @@ def get_daily_time_budgets_and_start_times(travel):
     return budgets, start_times
 
 
-def multi_tour(pois, edges, budgets, start_times, num_days, start_node, target_value):
+def multi_tour(pois, edges, budgets, start_times, num_days, start_node, target_value, poi_order):
     P_star = []
     t = []
     for poi in pois.items():
@@ -84,7 +90,7 @@ def multi_tour(pois, edges, budgets, start_times, num_days, start_node, target_v
         return (P_star, t)
     for i in range(0, (num_days-q)):
         P, t_P = single_tour(
-            pois, edges, budgets[i], start_times[i], start_node)
+            pois, edges, budgets[i], start_times[i], start_node, poi_order)
         P, t_P = truncate_tour(P, t_P, target_value)
         P_star.append(P)
         t.append(t_P)
@@ -108,25 +114,39 @@ def truncate_tour(P, t_P, target_value):
     return (P, t_P)
 
 
-def single_tour(pois, edges, budget, start_time, start_node):
+def single_tour(pois, edges, budget, start_time, start_node, poi_order):
     P_star = [start_node]
     P = []
+    if poi_order != None:
+        expected_num_pois = len(poi_order)
+
     while True:
         P = P_star
         best_margin = -1
         P_star = None
+        poi_found = False
         for poi in pois.items():
-            if poi not in P:
+            if poi not in P and not poi_found:
                 P2 = list(P)
                 P2.append(poi)
                 P2 = TSP(list(P2), edges)
                 margin = (Utility(P2) - Utility(P)) / \
                     (Cost(P2, edges) - Cost(P, edges))
-                if margin > best_margin and Cost(P2, edges) < budget:
+                if poi_order != None and poi[0] == poi_order[0] and Cost(P2, edges) < budget:
+                    poi_order.pop(0)
+                    poi_found = True
                     best_margin = margin
                     P_star = list(P2)
+                elif margin > best_margin and Cost(P2, edges) < budget:
+                    best_margin = margin
+                    P_star = list(P2)
+
         if (P_star == None):
             break
+
+    if (poi_order != None and len(P) <= expected_num_pois):
+        raise NoResults(
+            "Cannot fit all the activities within time window. Try removing an activity or increasing the time window.")
 
     visitDurations = [2*60*60] * len(P)
 
@@ -304,5 +324,5 @@ def get_POIs_for_destination(destination):
     for poi in getPOIsQuery:
         score = poi[9] + poi[10] + poi[11]
         pois[poi[0]] = {"name": poi[1],
-                        "latitude": poi[2], "longitude": poi[3], "score": score, "popularity": poi[4] if poi[4] != None else 0, "rating": poi[5] if poi[5] != None else 0, "description": poi[6], "best_photo": poi[7], "category": poi[8]}
+                        "latitude": poi[2], "longitude": poi[3], "score": score, "popularity": poi[4] if poi[4] != None else 0, "rating": poi[5] if poi[5] != None else 0, "description": poi[6], "bestPhoto": poi[7], "category": poi[8]}
     return pois
