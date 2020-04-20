@@ -1,6 +1,6 @@
 from config import db_manager
 from core.itinerary import calculate_itinerary, get_POIs_for_destination
-from flask import jsonify
+from flask import json, jsonify
 from apis import amadeus
 from core.destination import calculate_destination
 from core import accommodation, flights
@@ -43,7 +43,7 @@ def get_holiday(constraints, softPrefs, prefScores, feedback=None):
 
     pois_list = get_pois_list(pois)
 
-    return jsonify(name=destination["name"], wiki=destination["wiki"], imageURL=destination["image_url"], destId=destination["id"], itinerary=itinerary, travel=travel, accommodation=accommodation, all_travel=travel_options, all_accommodation=accommodation_options, all_activities=pois_list)
+    return json.dumps(dict(name=destination["name"], wiki=destination["wiki"], imageURL=destination["image_url"], destId=destination["id"], itinerary=itinerary, travel=travel, accommodation=accommodation, all_travel=travel_options, all_accommodation=accommodation_options, all_activities=pois_list))
 
 
 def get_pois_list(pois):

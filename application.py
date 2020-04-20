@@ -18,8 +18,8 @@ log.setLevel(logging.ERROR)
 
 CORS(application)
 
-# application.wsgi_app = ProfilerMiddleware(
-#     application.wsgi_app, restrictions=[300])
+application.wsgi_app = ProfilerMiddleware(
+    application.wsgi_app)
 
 if __name__ == "__main__":
     application.run()
