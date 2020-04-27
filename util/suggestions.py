@@ -43,7 +43,7 @@ def fetch_explore_suggestions():
     LIMIT 8
     """)
     dests = list(dests_query)
-    dests = get_present_dest_images(dests)
+    # dests = get_present_dest_images(dests)
     random.shuffle(dests)
     suggestions = []
     dests = dests[:8]
