@@ -1,6 +1,7 @@
 import logging
 import socket
-from flask import Flask
+from flask import Flask, session
+from flask_session import Session
 import sys
 import os
 import routes
@@ -18,8 +19,8 @@ log.setLevel(logging.ERROR)
 
 CORS(application)
 
-application.wsgi_app = ProfilerMiddleware(
-    application.wsgi_app)
+# application.wsgi_app = ProfilerMiddleware(
+#     application.wsgi_app)
 
 if __name__ == "__main__":
     application.run()

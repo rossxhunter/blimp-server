@@ -2,7 +2,6 @@ from config import db_manager
 from apis import wikipedia, exchange_rates
 from flask.json import jsonify
 from util.util import list_to_tuple, listToStr, get_list_of_values_from_list_of_dicts, get_origin_code
-from util.db_populate import populate_POI_details, populate_POI_table, add_codes, populate_destination_images
 from util.exceptions import NoResults
 from core import accommodation, flights
 

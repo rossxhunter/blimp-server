@@ -7,6 +7,30 @@ import apis.amadeus as amadeus
 from util.exceptions import NoResults
 
 
+def calculate_itinerary_for_evaluation(dest_id, numDays, constraints, softPrefs, prefScores):
+    pois = get_POIs_for_destination(dest_id)
+    start_location = db_manager.query("""
+    SELECT latitude, longitude FROM destination WHERE id = {dest_id}
+    """.format(dest_id=dest_id))[0]
+    start_node = ("start", {
+        "latitude": start_location[0], "longitude": start_location[1], "score": 0, "popularity": 0, "rating": 0})
+    edges = get_durations(pois, start_node)
+    T = 30000000
+    budgets = [8 * 60 * 60] * numDays
+    start_times = [8 * 60 * 60] * numDays
+    P, times = multi_tour(
+        pois, edges, budgets, start_times, numDays, start_node, T, None)
+    visitDuration = 2*60*60
+    itinerary = {}
+    for i in range(0, len(P)):
+        day_itinerary = []
+        for j in range(0, len(P[i])):
+            day_itinerary.append(
+                {"id": P[i][j][0], "name": P[i][j][1]["name"], "description": P[i][j][1]["description"], "latitude": P[i][j][1]["latitude"], "longitude": P[i][j][1]["longitude"], "score": P[i][j][1]["score"], "rating": P[i][j][1]["rating"], "popularity": P[i][j][1]["popularity"], "bestPhoto": P[i][j][1]["bestPhoto"], "category": P[i][j][1]["category"], "startTime": times[i][j], "duration": visitDuration})
+        itinerary[i] = day_itinerary
+    return itinerary
+
+
 def calculate_itinerary(pois, travel, accommodation, constraints, softPrefs, prefScores, poi_order=None, day=None):
     start_node = ("start", {
         "latitude": accommodation["latitude"], "longitude": accommodation["longitude"], "score": 0, "popularity": 0, "rating": 0})
@@ -314,15 +338,16 @@ def TSP(pois, edges):
 
 def get_POIs_for_destination(destination):
     getPOIsQuery = db_manager.query("""
-    SELECT poi.id,poi.name,poi.latitude,poi.longitude,poi.tip_count,poi.rating,poi.description,poi.best_photo,categories.name,categories.culture_score,categories.learn_score,categories.relax_score FROM poi
-    INNER JOIN categories ON poi.category_id = categories.id 
+    SELECT poi.id,poi.name,poi.latitude,poi.longitude,poi.num_ratings,poi.rating,poi.wiki_description,poi_photo.url,categories.name FROM poi
+    JOIN poi_photo ON poi_photo.poi_id = poi.id
+    JOIN categories ON poi.foursquare_category_id = categories.id
     WHERE poi.destination_id={destination}
-    ORDER BY poi.id
-    LIMIT 50
+    ORDER BY poi.num_ratings DESC
+    LIMIT 60
     """ .format(destination=destination))
     pois = {}
     for poi in getPOIsQuery:
-        score = poi[9] + poi[10] + poi[11]
+        score = 1
         pois[poi[0]] = {"name": poi[1],
                         "latitude": poi[2], "longitude": poi[3], "score": score, "popularity": poi[4] if poi[4] != None else 0, "rating": poi[5] if poi[5] != None else 0, "description": poi[6], "bestPhoto": poi[7], "category": poi[8]}
     return pois

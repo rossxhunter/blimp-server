@@ -1,30 +1,49 @@
 import json
 import requests
 import os
+from util.util import list_to_str_no_brackets
 
 base_url = 'https://api.foursquare.com/v2/venues/'
 client_id = os.environ["FOURSQUARE_CLIENT_ID"],
 client_secret = os.environ["FOURSQUARE_CLIENT_SECRET"]
-v = '20180323'
+v = '20200426'
 
 
-def get_nearby_POIs(latitude, longitude, cats):
+def get_nearby_POIs(city, query):
     params = dict(
         client_id=client_id,
         client_secret=client_secret,
         v=v,
-        ll=latitude + ',' + longitude,
+        near=city,
         locale="en",
         # section="sights",
-        # categoryId=cats
-        query="tourist",
-        radius=15000,
+        query=query,
         sortByPopularity=1,
         limit=1000
     )
     resp = requests.get(url=base_url+'explore', params=params)
     data = json.loads(resp.text)
     return data
+
+
+def get_POI_match(name, latitude, longitude, near):
+    params = dict(
+        client_id=client_id,
+        client_secret=client_secret,
+        v=v,
+        locale="en",
+        # intent="browse",
+        # radius=1000,
+        # ll=list_to_str_no_brackets([latitude, longitude]),
+        near=near,
+        # name=name,
+        # sortByPopularity=1,
+        query=name,
+        # address="210弄 Taikang Rd, Da Pu Qiao, Huangpu, China"
+    )
+    resp = requests.get(url=base_url+'search', params=params)
+    data = json.loads(resp.text)
+    return data["response"]["venues"]
 
 
 def get_POI_details(id):

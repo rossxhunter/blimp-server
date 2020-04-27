@@ -1,66 +1,142 @@
 from config import db_manager
-from apis import foursquare
-from apis import wikipedia
+from apis import foursquare, wikipedia, google_places, pixabay, facebook_places
 from core import activities
-from apis import pixabay
+import urllib
+import shutil
+import os
 
 
 def populate_DB():
     # add_codes()
     # populate_POI_table()
+    # calculate_tourist_scores()
+    # populate_POI_wiki_desc()
+    # fetch_POI_image_urls()
+    # populate_foursquare_POI_details()
+    # populate_facebook_POI_details()
     # calculate_destination_scores()
-    # populate_POI_details()
     # populate_destination_images()
     return
 
 
-def populate_POI_details():
-    dest_id = db_manager.query("""
-    SELECT id FROM destination WHERE name="Paris"
-    """)[0][0]
+def populate_facebook_POI_details():
     pois = db_manager.query("""
-    SELECT id FROM poi WHERE destination_id="{dest_id} AND tip_count IS NULL"
-    """.format(dest_id=dest_id))
+    SELECT id, name, latitude, longitude FROM poi WHERE destination_id = 1796236 AND id = "ChIJ29SwJftwsjURZYXg4jufPhY"
+    """)
     for poi in pois:
-        poi = poi[0]
-        details = foursquare.get_POI_details(poi)
-        print(details)
-        venue = details["response"]["venue"]
-        detailsInsert = db_manager.insert("""
-        UPDATE poi SET tip_count = {tip_count}, rating = {rating}, description = "{description}", best_photo = "{best_photo}"
-        WHERE id = "{poi_id}"
-        """.format(tip_count=venue["stats"]["tipCount"], rating=venue["rating"] if "rating" in venue else 0, description=venue["description"] if "description" in venue else "", best_photo=venue["bestPhoto"]["prefix"] + "800" + venue["bestPhoto"]["suffix"], poi_id=poi))
+        fb = facebook_places.search_facebook_place(poi[1], poi[2], poi[3])
+        if fb != None:
+            facebook_insert = db_manager.insert("""
+            UPDATE poi SET facebook_category = "{facebook_category}"
+            WHERE id = "{poi_id}"
+            """.format(poi_id=poi[0], facebook_category=fb["category_list"][-1]["name"]))
+
+
+def populate_foursquare_POI_details():
+    pois = db_manager.query("""
+    SELECT poi.id, poi.name, poi.latitude, poi.longitude, destination.name, destination.country_code 
+    FROM poi 
+    JOIN destination ON poi.destination_id = destination.id
+    WHERE foursquare_category_id IS NULL AND tourist_score IS NOT NULL
+    """)
+    for poi in pois:
+        matches = foursquare.get_POI_match(
+            poi[1], poi[2], poi[3], poi[4] + "," + poi[5])
+        if len(matches) > 0:
+            details = matches[0]
+            for match in matches:
+                if "flags" in match and "exactMatch" in match["flags"]:
+                    details = match
+            foursquare_insert = db_manager.insert("""
+            UPDATE poi SET foursquare_category_id = "{category_id}", cat_name = "{cat_name}"
+            WHERE id = "{poi_id}"
+            """.format(poi_id=poi[0], category_id=details["categories"][0]["id"] if len(details["categories"]) != 0 else "4d4b7105d754a06375d81259", cat_name=details["categories"][0]["name"] if len(details["categories"]) != 0 else ""))
+
+
+def populate_POI_table_from_google_details():
+    pois = db_manager.query("""
+    SELECT id FROM poi WHERE destination_id = 1796236
+    """)
+    for poi in pois:
+        poi_details = google_places.get_poi_details(poi[0])
+        db_manager.insert("""
+        UPDATE poi SET name = "{name}", latitude = {latitude}, longitude = {longitude}, rating = {rating}, num_ratings = {num_ratings}, types = "{types}"
+        WHERE id = {id}
+        """.format(id=poi[0], name=poi_details["name"], latitude=poi_details["geometry"]["location"]["lat"], longitude=poi_details["geometry"]["location"]["lng"], rating=poi_details["rating"] if "rating" in poi else "NULL", num_ratings=poi_details["user_ratings_total"], types=str(poi_details["types"]).replace('"', '').replace("'", "")))
+        for photo in poi_details["photos"]:
+            db_manager.insert("""
+            INSERT INTO poi_photo (reference, poi_id)
+            VALUES ({reference}, {poi_id})
+            """.format(reference=photo["reference"], poi_id=poi[0]))
+
+
+def fetch_POI_image_urls():
+    refs = db_manager.query("""
+    SELECT reference FROM poi_photo WHERE url IS NULL
+    """)
+    for ref in refs:
+        url = google_places.fetch_image_url(ref[0])
+        db_manager.insert("""
+        UPDATE poi_photo SET url = "{url}"
+        WHERE reference = "{reference}"
+        """.format(url=url, reference=ref[0]))
+
+
+def populate_POI_wiki_desc():
+    pois = db_manager.query("""
+    SELECT poi.id, poi.name, destination.name, destination.country_code FROM poi 
+    JOIN destination ON destination.id = poi.destination_id
+    WHERE wiki_description IS NULL
+    """)
+    for poi in pois:
+        desc = wikipedia.getWikiDescription(
+            poi[1])
+        db_manager.insert("""
+        UPDATE poi SET wiki_description = "{desc}"
+        WHERE id = "{id}"
+        """.format(desc=desc, id=poi[0]))
+
+
+def calculate_tourist_scores():
+    dests = db_manager.query("""
+    SELECT id FROM destination ORDER BY population DESC LIMIT 10
+    """)
+    for dest in dests:
+        pois = db_manager.query("""
+        SELECT rating, num_ratings FROM poi
+        WHERE destination_id = {dest_id}
+        ORDER BY num_ratings DESC
+        LIMIT 30
+        """.format(dest_id=dest[0]))
+        score = 0
+        for poi in pois:
+            score += poi[0] * poi[1]
+        db_manager.insert("""
+        UPDATE destination SET tourist_score = {score}
+        WHERE id = {dest_id}
+        """.format(score=score, dest_id=dest[0]))
 
 
 def populate_POI_table():
     dests = db_manager.query("""
-    SELECT id, latitude, longitude FROM destination WHERE city_code IS NOT NULL ORDER BY population DESC LIMIT 500
+    SELECT id, latitude, longitude, name, country_code FROM destination WHERE city_code IS NOT NULL ORDER BY population DESC LIMIT 10
     """)
-    arts_entertainment = "4d4b7104d754a06370d81259"
-    event = "4d4b7105d754a06373d81259"
-    nightlife_spot = "4d4b7105d754a06376d81259"
-    outdoors_recreation = "4d4b7105d754a06377d81259"
-    professional_other = "4d4b7105d754a06375d81259"
-    cats = arts_entertainment + "," + event + "," + nightlife_spot + \
-        "," + outdoors_recreation + "," + professional_other
     poisForDB = []
-    for dest in dests:
-        pois = activities.get_nearby_POIs(
-            str(dest[1]), str(dest[2]), cats)
-        if "groups" in pois:
-            pois = pois["groups"][0]["items"]
-            for poi in pois:
-                poi = poi["venue"]
-                category = "4d4b7105d754a06375d81259"
-                if len(poi["categories"]) != 0:
-                    category = poi["categories"][0]["id"]
-                poiForDB = {"id": poi["id"], "name": poi["name"],
-                            "latitude": poi["location"]["lat"], "longitude": poi["location"]["lng"], "category_id": category, "destination_id": dest[0]}
-                db_manager.insert("""
-                REPLACE INTO poi (id, name, latitude, longitude, category_id, destination_id)
-                VALUES ("{id}", "{name}", {latitude}, {longitude}, "{category_id}", {destination_id});
-                """.format(id=poiForDB["id"], name=poiForDB["name"].replace('"', '\\"'),  latitude=poiForDB["latitude"], longitude=poiForDB["longitude"], category_id=poiForDB["category_id"], destination_id=poiForDB["destination_id"]))
-            print("DONE!")
+    for dest in dests[1:10]:
+        pois = google_places.get_nearby_POIs(
+            dest[1], dest[2], dest[3] + "," + dest[4])
+        for poi in pois:
+            db_manager.insert("""
+            REPLACE INTO poi (id, destination_id, name, latitude, longitude, rating, num_ratings, types)
+            VALUES ("{id}", {destination_id}, "{name}", {latitude},
+                    {longitude}, {rating}, {num_ratings}, "{types}")
+            """.format(id=poi["place_id"], destination_id=dest[0], name=poi["name"], latitude=poi["geometry"]["location"]["lat"], longitude=poi["geometry"]["location"]["lng"], rating=poi["rating"] if "rating" in poi else "NULL", num_ratings=poi["user_ratings_total"], types=str(poi["types"]).replace('"', '').replace("'", "")))
+            if "photos" in poi:
+                for photo in poi["photos"]:
+                    db_manager.insert("""
+                    INSERT INTO poi_photo (reference, poi_id, height, width)
+                    VALUES ("{reference}", "{poi_id}", {height}, {width})
+                    """.format(reference=photo["photo_reference"], poi_id=poi["place_id"], height=photo["height"], width=photo["width"]))
 
 
 def add_codes():
@@ -74,14 +150,31 @@ def add_codes():
 
 
 def populate_destination_images():
-    destsQuery = db_manager.query("""
-    SELECT id,name FROM destination WHERE city_code IS NOT NULL AND culture_score IS NOT NULL AND culture_score > 0 ORDER BY population DESC LIMIT 50
+
+    dests_query = db_manager.query("""
+    SELECT id,name FROM destination WHERE city_code IS NOT NULL AND culture_score IS NOT NULL ORDER BY population DESC
     """)
-    urls = pixabay.fetch_images(destsQuery)
+    missing_dest_images = get_missing_dest_images(dests_query)[:50]
+    urls = pixabay.fetch_images(missing_dest_images)
     for dest_id, dest_url in urls:
-        image_insert = db_manager.insert("""
-        UPDATE destination SET image_url = "{image_url}" WHERE id = {dest_id}
-        """.format(image_url=dest_url, dest_id=dest_id))
+        # image_insert = db_manager.insert("""
+        # UPDATE destination SET image_url = "{image_url}" WHERE id = {dest_id}
+        # """.format(image_url=dest_url, dest_id=dest_id))
+        os.mkdir("assets/images/destinations/" + str(dest_id))
+        user_agent = 'Mozilla/5.0 (Windows NT 6.1; Win64; x64)'
+        headers = {'User-Agent': user_agent}
+        req = urllib.request.Request(dest_url, {}, headers)
+        with urllib.request.urlopen(req) as response, open("assets/images/destinations/" + str(dest_id) + "/1.jpg", 'wb') as out_file:
+            data = response.read()
+            out_file.write(data)
+
+
+def get_missing_dest_images(dests):
+    missing = []
+    for dest_id, dest_name in dests:
+        if not os.path.isdir("assets/images/destinations/" + str(dest_id)):
+            missing.append((dest_id, dest_name))
+    return missing
 
 
 def calculate_destination_scores():

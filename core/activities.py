@@ -1,6 +1,6 @@
 from apis import foursquare
 
 
-def get_nearby_POIs(dest_1, dest_2, cats):
+def get_nearby_POIs(city, query):
     return foursquare.get_nearby_POIs(
-        dest_1, dest_2, cats)["response"]
+        city, query)["response"]

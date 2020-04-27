@@ -9,7 +9,6 @@ from util.db_populate import populate_DB
 
 
 def get_holiday(constraints, softPrefs, prefScores, feedback=None):
-    populate_DB()
     destination = calculate_destination(
         constraints, softPrefs, prefScores, feedback)
 

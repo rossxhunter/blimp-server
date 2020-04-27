@@ -29,6 +29,15 @@ def list_to_str_no_brackets(list):
     return result
 
 
+def list_to_str_no_brackets_add_speech_marks(list):
+    result = ""
+    for i in range(0, len(list)):
+        result += '"' + str(list[i]) + '"'
+        if (i != len(list) - 1):
+            result += ","
+    return result
+
+
 def listToStr(list):
     result = "("
     for i in range(0, len(list)):
