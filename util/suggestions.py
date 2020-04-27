@@ -54,7 +54,7 @@ def fetch_explore_suggestions():
         FROM
             (SELECT id, name, country_code
             FROM destination
-            WHERE id IN ({dest_ids}) as dests
+            WHERE id IN ({dest_ids})) as dests
         JOIN poi ON poi.destination_id = dests.id) as ranked
     WHERE rnk <= 10
     """.format(dest_ids=list_to_str_no_brackets(list(map(lambda x: x[0], dests)))))
