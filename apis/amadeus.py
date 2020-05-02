@@ -20,9 +20,9 @@ def get_accommodation_for_destination(dest, check_in_date, check_out_date, trave
         accommodation_stars_range = list(range(accommodation_stars, 6))
     accommodation = amadeus.shopping.hotel_offers.get(
         cityCode=dest, checkInDate=check_in_date, checkOutDate=check_out_date, adults=travellers["adults"], amenities=list_to_str_no_brackets(accommodation_amenities), ratings=list_to_str_no_brackets(accommodation_stars_range), sort="PRICE", currency=currency).result
-    f = open("data/hotels_spec_data.txt", "w")
-    f.write(json.dumps(accommodation))
-    f.close()
+    # f = open("data/hotels_spec_data.txt", "w")
+    # f.write(json.dumps(accommodation))
+    # f.close()
     # f = open("data/hotels_spec_data.txt", "r")
     # accommodation = json.loads(f.read())
     # f.close()
@@ -33,9 +33,9 @@ def get_direct_flights_from_origin_to_desintaion(origin, dest, departure_date, r
     flights = amadeus.shopping.flight_offers_search.get(
         originLocationCode=origin, destinationLocationCode=dest, departureDate=departure_date, returnDate=return_date, adults=travellers["adults"], nonStop="true", currencyCode=currency).result
 
-    f = open("data/flights_spec_data.txt", "w")
-    f.write(json.dumps(flights) + "\n")
-    f.close()
+    # f = open("data/flights_spec_data.txt", "w")
+    # f.write(json.dumps(flights) + "\n")
+    # f.close()
     # f = open("data/flights_spec_data.txt", "r")
     # flights = json.loads(f.read())
     # f.close()
@@ -57,9 +57,9 @@ def get_all_return_flights(origin, departure_date, return_date):
 
     flights = amadeus.shopping.flight_destinations.get(
         origin=origin, departureDate=departure_date, duration=duration).result
-    f = open("flights_data.txt", "w")
-    f.write(json.dumps(flights))
-    f.close()
+    # f = open("flights_data.txt", "w")
+    # f.write(json.dumps(flights))
+    # f.close()
     # f = open("data/flights_data.txt", "r")
     # flights = json.loads(f.read())
     # f.close()
