@@ -17,6 +17,24 @@ USER_AGENT = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_1) "
                             "Chrome/54.0.2840.98 Safari/537.36"}
 
 
+def fetch_images(google_id):
+    details = client.place(google_id, language="en", fields=["photo"])
+    return details["result"]["photos"]
+
+
+def fetch_dest_id(dest):
+    dest_images = []
+    result = client.find_place(
+        dest[1],
+        "textquery",
+        fields=["place_id"],
+        location_bias="point:{lat},{lng}".format(
+            lat=dest[2], lng=dest[3]),
+        language="en",
+    )
+    return result["candidates"][0]["place_id"]
+
+
 def get_poi_details(poi_id):
     details = client.place(poi_id, language="en")
     return details["result"]
@@ -36,7 +54,7 @@ def get_nearby_POIs(latitude, longitude, text_location):
     all_pois = []
     collected_all = False
     next_page_token = None
-    url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
+    url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
     while not collected_all:
         if next_page_token != None:
             params = dict(

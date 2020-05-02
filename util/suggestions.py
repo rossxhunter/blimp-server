@@ -40,13 +40,20 @@ def fetch_explore_suggestions():
     JOIN country ON country.ISO = destination.country_code
     WHERE tourist_score IS NOT NULL
     ORDER BY destination.tourist_score DESC
-    LIMIT 8
+    LIMIT 20
     """)
     dests = list(dests_query)
     # dests = get_present_dest_images(dests)
     random.shuffle(dests)
     suggestions = []
-    dests = dests[:8]
+    dests = dests[:10]
+    dest_images = {}
+    for dest in dests:
+        images_query = db_manager.query("""
+        SELECT url FROM destination_photo
+        WHERE dest_id = {dest_id}
+        """.format(dest_id=dest[0]))
+        dest_images[dest[0]] = images_query[0][0]
     top_attractions_query = db_manager.query("""
     SELECT ranked.id, ranked.name
     FROM
@@ -69,7 +76,7 @@ def fetch_explore_suggestions():
         random.shuffle(selected_attractions)
         selected_attractions = selected_attractions[:3]
         suggestions.append(
-            {"id": d[0], "name": d[1], "country_code": d[2].lower(), "country_name": d[3], "top_attractions": selected_attractions})
+            {"id": d[0], "name": d[1], "country_code": d[2].lower(), "country_name": d[3], "image": dest_images[d[0]], "top_attractions": selected_attractions})
     return jsonify(suggestions)
 
 
@@ -94,34 +101,35 @@ def fetch_currency_suggestions():
 
 def fetch_activity_suggestions():
     activities_query = db_manager.query("""
-    SELECT id, name, icon_prefix FROM categories WHERE culture_score <> 0
+    SELECT id, name, plural_name, icon_prefix FROM categories WHERE culture_score <> 0
     """)
     activities = []
     for activity in activities_query:
         activities.append(
-            {"heading": activity[1], "subheading": "", "icon": activity[2], "id": activity[0]})
+            {"name": activity[1], "plural": activity[2], "icon": activity[3], "id": activity[0]})
     return jsonify(activities)
 
 
 def fetch_destination_suggestions():
     airports_query = db_manager.query("""
-    SELECT airports.name, municipality, iata_code FROM airports 
+    SELECT airports.name, municipality, iata_code, country_code FROM airports 
     JOIN destination ON destination.name = airports.municipality AND destination.country_code = airports.iso_country
     WHERE iata_code IS NOT NULL AND municipality IS NOT NULL AND tourist_score IS NOT NULL
     """)
     airports = []
     for airport in airports_query:
         airports.append(
-            {"heading": airport[0], "subheading": airport[1], "type": "airport", "id": airport[2]})
+            {"airportName": airport[0], "countryCode": airport[3].lower(), "cityName": airport[1], "type": "airport", "id": airport[2]})
 
     cities_query = db_manager.query("""
-    SELECT id, name, country_code FROM destination 
+    SELECT id, name, country_code, country.Country FROM destination 
+    JOIN country ON country.ISO = destination.country_code
     WHERE city_code IS NOT NULL AND tourist_score IS NOT NULL
     """)
     cities = []
     for city in cities_query:
         cities.append(
-            {"heading": city[1], "subheading": city[2], "type": "city", "id": city[0]})
+            {"cityName": city[1], "countryCode": city[2].lower(), "countryName": city[3], "type": "city", "id": city[0]})
 
     suggestions = airports + cities
     return jsonify(suggestions)

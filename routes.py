@@ -51,7 +51,8 @@ def get_itinerary():
     pref_scores = json.loads(request.args.get('pref_scores'))
 
     pois = {}
-    poi_order = [a["id"] for a in activities]
+    poi_order = [{"id": a["id"], "duration": a["duration"]}
+                 for a in activities]
     for activity in activities:
         if activity["id"] in pois:
             raise NoResults("Already added this activity")
@@ -65,9 +66,9 @@ def get_itineraries_for_evaluation(dest_id):
     origin_id = 2643743
     preferences = {}
     constraints = dict(trip_type="Return", origin={"type": "city", "id": origin_id}, destination={"type": "city", "id": dest_id},
-                       departure_date="2020-07-16", return_date="2020-07-18", travellers={"adults": 0}, accommodation_stars=3, budget_leq=1500)
-    soft_prefs = []
-    pref_scores = []
+                       departure_date="2020-07-16", return_date="2020-07-18", travellers={"adults": 0}, accommodation_stars=3, budget_leq=1500, essential_activities=[])
+    soft_prefs = {"preferred_activities": []}
+    pref_scores = {}
     blimp_itinerary = itinerary.calculate_itinerary_for_evaluation(dest_id, 3,
                                                                    constraints, soft_prefs, pref_scores)
     google_itinerary_with_details = evaluation.get_poi_details_for_itinerary(

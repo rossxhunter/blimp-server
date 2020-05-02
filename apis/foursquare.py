@@ -43,6 +43,8 @@ def get_POI_match(name, latitude, longitude, near):
     )
     resp = requests.get(url=base_url+'search', params=params)
     data = json.loads(resp.text)
+    if "venues" not in data["response"]:
+        return None
     return data["response"]["venues"]
 
 

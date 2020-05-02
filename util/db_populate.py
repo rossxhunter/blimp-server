@@ -12,24 +12,25 @@ def populate_DB():
     # calculate_tourist_scores()
     # populate_POI_wiki_desc()
     # fetch_POI_image_urls()
-    # populate_foursquare_POI_details()
+    populate_foursquare_POI_details()
     # populate_facebook_POI_details()
     # calculate_destination_scores()
     # populate_destination_images()
+    # fetch_dest_image_urls()
     return
 
 
 def populate_facebook_POI_details():
     pois = db_manager.query("""
-    SELECT id, name, latitude, longitude FROM poi WHERE destination_id = 1796236 AND id = "ChIJ29SwJftwsjURZYXg4jufPhY"
+    SELECT id, name, latitude, longitude FROM poi WHERE facebook_checkins IS NULL
     """)
     for poi in pois:
         fb = facebook_places.search_facebook_place(poi[1], poi[2], poi[3])
         if fb != None:
             facebook_insert = db_manager.insert("""
-            UPDATE poi SET facebook_category = "{facebook_category}"
+            UPDATE poi SET facebook_checkins = {checkins}, facebook_about = "{about}", facebook_description = "{description}"
             WHERE id = "{poi_id}"
-            """.format(poi_id=poi[0], facebook_category=fb["category_list"][-1]["name"]))
+            """.format(poi_id=poi[0], checkins=fb["checkins"], about=fb["about"].replace('"', '') if "about" in fb else "", description=fb["description"].replace('"', '') if "description" in fb else ""))
 
 
 def populate_foursquare_POI_details():
@@ -37,12 +38,13 @@ def populate_foursquare_POI_details():
     SELECT poi.id, poi.name, poi.latitude, poi.longitude, destination.name, destination.country_code 
     FROM poi 
     JOIN destination ON poi.destination_id = destination.id
-    WHERE foursquare_category_id IS NULL AND tourist_score IS NOT NULL
+    WHERE poi.id = "ChIJ29SwJftwsjURZYXg4jufPhY"
     """)
+    # WHERE foursquare_category_id IS NULL AND tourist_score IS NOT NULL
     for poi in pois:
         matches = foursquare.get_POI_match(
             poi[1], poi[2], poi[3], poi[4] + "," + poi[5])
-        if len(matches) > 0:
+        if matches != None and len(matches) > 0:
             details = matches[0]
             for match in matches:
                 if "flags" in match and "exactMatch" in match["flags"]:
@@ -68,6 +70,18 @@ def populate_POI_table_from_google_details():
             INSERT INTO poi_photo (reference, poi_id)
             VALUES ({reference}, {poi_id})
             """.format(reference=photo["reference"], poi_id=poi[0]))
+
+
+def fetch_dest_image_urls():
+    refs = db_manager.query("""
+    SELECT reference FROM destination_photo WHERE url IS NULL
+    """)
+    for ref in refs:
+        url = google_places.fetch_image_url(ref[0])
+        db_manager.insert("""
+        UPDATE destination_photo SET url = "{url}"
+        WHERE reference = "{reference}"
+        """.format(url=url, reference=ref[0]))
 
 
 def fetch_POI_image_urls():
@@ -99,7 +113,10 @@ def populate_POI_wiki_desc():
 
 def calculate_tourist_scores():
     dests = db_manager.query("""
-    SELECT id FROM destination ORDER BY population DESC LIMIT 10
+    SELECT id FROM destination 
+    WHERE tourist_score IS NULL AND city_code IS NOT NULL
+    ORDER BY population DESC 
+    LIMIT 100
     """)
     for dest in dests:
         pois = db_manager.query("""
@@ -110,7 +127,8 @@ def calculate_tourist_scores():
         """.format(dest_id=dest[0]))
         score = 0
         for poi in pois:
-            score += poi[0] * poi[1]
+            if poi[0] != None and poi[1] != None:
+                score += poi[0] * poi[1]
         db_manager.insert("""
         UPDATE destination SET tourist_score = {score}
         WHERE id = {dest_id}
@@ -119,18 +137,21 @@ def calculate_tourist_scores():
 
 def populate_POI_table():
     dests = db_manager.query("""
-    SELECT id, latitude, longitude, name, country_code FROM destination WHERE city_code IS NOT NULL ORDER BY population DESC LIMIT 10
+    SELECT id, latitude, longitude, name, country_code FROM destination 
+    WHERE city_code IS NOT NULL AND tourist_score IS NULL
+    ORDER BY population DESC 
+    LIMIT 100
     """)
     poisForDB = []
-    for dest in dests[1:10]:
+    for dest in dests:
         pois = google_places.get_nearby_POIs(
             dest[1], dest[2], dest[3] + "," + dest[4])
         for poi in pois:
             db_manager.insert("""
-            REPLACE INTO poi (id, destination_id, name, latitude, longitude, rating, num_ratings, types)
+            INSERT INTO poi (id, destination_id, name, latitude, longitude, rating, num_ratings, types)
             VALUES ("{id}", {destination_id}, "{name}", {latitude},
                     {longitude}, {rating}, {num_ratings}, "{types}")
-            """.format(id=poi["place_id"], destination_id=dest[0], name=poi["name"], latitude=poi["geometry"]["location"]["lat"], longitude=poi["geometry"]["location"]["lng"], rating=poi["rating"] if "rating" in poi else "NULL", num_ratings=poi["user_ratings_total"], types=str(poi["types"]).replace('"', '').replace("'", "")))
+            """.format(id=poi["place_id"], destination_id=dest[0], name=poi["name"].replace('"', ''), latitude=poi["geometry"]["location"]["lat"], longitude=poi["geometry"]["location"]["lng"], rating=poi["rating"] if "rating" in poi else "NULL", num_ratings=poi["user_ratings_total"] if "user_ratings_total" in poi else "NULL", types=str(poi["types"]).replace('"', '').replace("'", "")))
             if "photos" in poi:
                 for photo in poi["photos"]:
                     db_manager.insert("""
@@ -152,21 +173,48 @@ def add_codes():
 def populate_destination_images():
 
     dests_query = db_manager.query("""
-    SELECT id,name FROM destination WHERE city_code IS NOT NULL AND culture_score IS NOT NULL ORDER BY population DESC
+    SELECT id, name, latitude, longitude FROM destination
+    WHERE city_code IS NOT NULL AND tourist_score IS NOT NULL AND google_id IS NULL
+    ORDER BY tourist_score DESC
     """)
-    missing_dest_images = get_missing_dest_images(dests_query)[:50]
-    urls = pixabay.fetch_images(missing_dest_images)
-    for dest_id, dest_url in urls:
-        # image_insert = db_manager.insert("""
-        # UPDATE destination SET image_url = "{image_url}" WHERE id = {dest_id}
-        # """.format(image_url=dest_url, dest_id=dest_id))
-        os.mkdir("assets/images/destinations/" + str(dest_id))
-        user_agent = 'Mozilla/5.0 (Windows NT 6.1; Win64; x64)'
-        headers = {'User-Agent': user_agent}
-        req = urllib.request.Request(dest_url, {}, headers)
-        with urllib.request.urlopen(req) as response, open("assets/images/destinations/" + str(dest_id) + "/1.jpg", 'wb') as out_file:
-            data = response.read()
-            out_file.write(data)
+
+    for dest in dests_query:
+        google_id = google_places.fetch_dest_id(dest)
+        db_manager.insert("""
+        UPDATE destination SET google_id = "{google_id}"
+        WHERE id = {dest_id}
+        """.format(google_id=google_id, dest_id=dest[0]))
+
+    dests_query = db_manager.query("""
+    SELECT id, google_id FROM destination
+    WHERE city_code IS NOT NULL AND tourist_score IS NOT NULL AND google_id IS NOT NULL
+    ORDER BY tourist_score DESC
+    """)
+
+    for dest in dests_query:
+        exists = db_manager.query("""
+        SELECT reference FROM destination_photo
+        WHERE dest_id = {dest_id}
+        """.format(dest_id=dest[0]))
+        if len(exists) == 0:
+            photos = google_places.fetch_images(dest[1])
+            for photo in photos:
+                db_manager.insert("""
+                REPLACE INTO destination_photo (reference, dest_id, height, width)
+                VALUES ("{ref}", "{dest_id}", {height}, {width})
+                """.format(ref=photo["photo_reference"], dest_id=dest[0], height=photo["width"], width=photo["height"]))
+
+    # for dest_id, dest_url in urls:
+    #     # image_insert = db_manager.insert("""
+    #     # UPDATE destination SET image_url = "{image_url}" WHERE id = {dest_id}
+    #     # """.format(image_url=dest_url, dest_id=dest_id))
+    #     # os.mkdir("assets/images/destinations/" + str(dest_id))
+    #     user_agent = 'Mozilla/5.0 (Windows NT 6.1; Win64; x64)'
+    #     headers = {'User-Agent': user_agent}
+    #     req = urllib.request.Request(dest_url, {}, headers)
+    #     with urllib.request.urlopen(req) as response, open("assets/images/destinations/" + str(dest_id) + "/1.jpg", 'wb') as out_file:
+    #         data = response.read()
+    #         out_file.write(data)
 
 
 def get_missing_dest_images(dests):

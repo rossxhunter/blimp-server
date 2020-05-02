@@ -2,6 +2,8 @@ from config import db_manager
 from apis import amadeus
 from datetime import datetime
 from util.util import list_to_tuple
+import dateutil.parser
+import re
 
 
 def get_all_return_flights(origin, departure_date, return_date):
@@ -19,13 +21,16 @@ def get_direct_flights_from_origin_to_desintaion(origin, dest, departure_date, r
     flights = amadeus.get_direct_flights_from_origin_to_desintaion(
         origin, dest, departure_date, return_date, travellers, currency)
     flights_details = []
+    i = 0
     for flight in flights["data"]:
         details = {}
         details["outbound"] = get_flight_details(flight, 0)
         details["return"] = get_flight_details(flight, 1)
         details["price"] = {"amount": float(
             flight["price"]["total"]), "currency": flight["price"]["currency"]}
+        details["id"] = i
         flights_details.append(details)
+        i += 1
     return flights_details
 
 
@@ -43,7 +48,7 @@ def get_flight_details(flight, journey):
         selected_flights[point]["date"] = departure_date
         selected_flights[point]["time"] = departure_time
     selected_flights["carrierCode"] = flight_segments["carrierCode"]
-    selected_flights["duration"] = flight_segments["duration"]
+    selected_flights["duration"] = parse_duration(flight_segments["duration"])
     traveller_pricings = flight["travelerPricings"][0]
     selected_flights["price"] = {
         "amount": float(flight["price"]["total"])/2, "currency": flight["price"]["currency"]}
@@ -51,10 +56,24 @@ def get_flight_details(flight, journey):
     return selected_flights
 
 
+def parse_duration(duration):
+    hours = re.search('PT(.*)H', duration)
+    if hours == None:
+        hours = 0
+    else:
+        hours = int(hours.group(1))
+    minutes = re.search('(PT(.*)H|H)(.*)M', duration)
+    if minutes == None:
+        minutes = 0
+    else:
+        minutes = int(minutes.group(3))
+    return hours * 60 + minutes
+
+
 def get_flight_date_and_time(at):
     date_time = datetime.strptime(
         at, '%Y-%m-%dT%H:%M:%S')
-    date = date_time.strftime("%d %B")
+    date = date_time.strftime("%Y%m%d")
     time = date_time.strftime("%H:%M")
     return date, time
 

@@ -10,7 +10,7 @@ def search_facebook_place(name, latitude, longitude):
     for row in csv_reader:
         keys.append(row[0] + "|" + row[1])
     success = False
-    i = 0
+    i = 4
     while success == False:
         access_token = keys[i]
         url = "https://graph.facebook.com/search"

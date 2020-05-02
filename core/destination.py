@@ -4,6 +4,7 @@ from flask.json import jsonify
 from util.util import list_to_tuple, listToStr, get_list_of_values_from_list_of_dicts, get_origin_code
 from util.exceptions import NoResults
 from core import accommodation, flights
+from core.flights import parse_duration
 
 NUM_DEST_ATTEMPTS = 3
 
@@ -36,18 +37,19 @@ def calculate_destination(constraints, soft_prefs, pref_scores, feedback):
 
     wiki_entry = wikipedia.getWikiDescription(name)
 
-    image_url = get_dest_image_url(dest_id)
+    image_urls = get_dest_image_urls(dest_id)
 
-    return {"name": name, "wiki": wiki_entry, "image_url": image_url, "id": dest_id, "flights": flight_options, "accommodation": accommodation_options}
+    return {"name": name, "wiki": wiki_entry, "image_urls": image_urls, "id": dest_id, "flights": flight_options, "accommodation": accommodation_options}
 
 
-def get_dest_image_url(dest_id):
+def get_dest_image_urls(dest_id):
     q = db_manager.query("""
-    SELECT image_url FROM destination WHERE id = {dest_id}
+    SELECT url FROM destination_photo WHERE dest_id = {dest_id} AND url IS NOT NULL
     """.format(dest_id=dest_id))
-    if len(q) == 0:
-        return None
-    return q[0][0]
+    urls = []
+    for u in q:
+        urls.append(u[0])
+    return urls
 
 
 def get_ranked_dests(dests_soft_prefs_similarities, dests_pref_scores_similarities):
@@ -64,9 +66,11 @@ def add_to_viable_dests(dests, dests_soft_prefs_similarities, dests_pref_scores_
 
 def select_dest_from_ranked_dests(dests, ranked_dests, constraints, feedback):
     num_no_flights = 0
+    num_feedback_invalid = 0
+    num_low_budget = 0
+    if feedback != None:
+        ranked_dests.remove(feedback["previous_dest_id"])
     for dest_id in ranked_dests[:NUM_DEST_ATTEMPTS]:
-        if feedback != None and dest_id == feedback["previous_dest_id"] and "destination" not in constraints:
-            continue
         dest_code_query = db_manager.query("""
         SELECT city_code FROM destination WHERE id={dest_id}
         """.format(dest_id=dest_id))[0][0]
@@ -83,19 +87,39 @@ def select_dest_from_ranked_dests(dests, ranked_dests, constraints, feedback):
                     SELECT name FROM destination WHERE id = {id}
                     """.format(id=dest_id))
                     return dest_id, dest_query[0][0], flight_options, accommodation_options
-    if num_no_flights == len(ranked_dests):
-        raise NoResults(
-            'No flights available on these dates')
+                else:
+                    num_feedback_invalid += 1
+            else:
+                num_low_budget += 1
+    if num_no_flights == max(num_no_flights, num_feedback_invalid, num_low_budget):
+        raise NoResults('No flights available on these dates')
+    elif num_feedback_invalid == max(num_no_flights, num_feedback_invalid, num_low_budget):
+        raise NoResults('Cannot find any destinations for the given feedback')
+    elif num_low_budget == max(num_no_flights, num_feedback_invalid, num_low_budget):
+        raise NoResults('Budget is too low')
     else:
-        raise NoResults(
-            'Budget is too low')
+        raise NoResults('No Results')
 
 
 def destination_satisfies_feedback(dest_id, flight_options, accommodation_options, ranked_dests, constraints, feedback):
     if feedback == None:
         return True
+    if feedback["previous_dest_id"] == dest_id:
+        return False
     if feedback["type"] == "cheaper":
         return destination_satisfies_budget(flight_options[0]["price"], dest_id, constraints, accommodation_options, feedback["previous_price"])
+    if feedback["type"] == "closer":
+        previous_travel_duration = feedback["previous_travel_duration"]
+        travel_duration = flight_options[0]["outbound"]["duration"]
+        return travel_duration < previous_travel_duration
+    if feedback["type"] == "better_weather":
+        return True
+    if feedback["type"] == "more_activity":
+        n = get_preferred_activities_similarity(
+            dest_id, [feedback["activity_id"]], 1)
+        previous_n = feedback["previous_num"]
+        return n > previous_n
+    return True
 
 
 def destination_satisfies_budget(flight_price, dest_id, constraints, accommodation_options, budget):
@@ -127,13 +151,6 @@ def get_destination_from_airport(code):
 
 
 def get_destination_from_city(dest_id, dests):
-    # getDestQuery = db_manager.query("""
-    #         SELECT id,name FROM viable_destinations WHERE id = "{id}"
-    #         """.format(id=id))
-    # if (len(getDestQuery) == 0):
-    #     raise NoResults(
-    #         'Cannot fly to this destination')
-    # return getDestQuery[0][0], getDestQuery[0][1]
     if dest_id in dests:
         return dest_id, dests[dest_id]["name"]
     raise NoResults('Cannot fly to this destination')
@@ -195,8 +212,8 @@ def prefs_recommender(softPrefs, dests):
 def get_preferred_activities_similarity(dest, preferred_activities, weight):
     if len(preferred_activities) > 0:
         poi_query = db_manager.query("""
-            SELECT COUNT(id) FROM poi WHERE destination_id = {dest_id} AND category_id IN {cats}
-            """.format(dest_id=dest, cats=list_to_tuple(preferred_activities)))
+        SELECT COUNT(id) FROM poi WHERE destination_id = {dest_id} AND foursquare_category_id IN {cats}
+        """.format(dest_id=dest, cats=list_to_tuple(preferred_activities)))
         similarity = poi_query[0][0]
         return weight * similarity
     return 0

@@ -10,12 +10,15 @@ def get_accommodation_options(dest, check_in_date, check_out_date, travellers, a
 
     accommodation_details = []
     rates = {}
+    i = 0
     for acc in accommodation_options["data"]:
         conversion = get_exchange_rate_for_accommodation(
             acc["offers"][0]["price"]["currency"], currency, rates)
 
         details = get_accommodation_details(acc, currency, conversion)
+        details["id"] = i
         accommodation_details.append(details)
+        i += 1
     return accommodation_details
 
 
@@ -47,7 +50,7 @@ def get_accommodation_details(accommodation, currency, conversion):
     accommodation_details["type"] = accommodation["hotel"]["type"]
     accommodation_details["name"] = accommodation["hotel"]["name"]
     accommodation_details["stars"] = int(accommodation["hotel"]["rating"])
-    accommodation_details["id"] = accommodation["hotel"]["hotelId"]
+    accommodation_details["hotelId"] = accommodation["hotel"]["hotelId"]
     accommodation_details["latitude"] = accommodation["hotel"]["latitude"]
     accommodation_details["longitude"] = accommodation["hotel"]["longitude"]
     if "media" in accommodation["hotel"]:

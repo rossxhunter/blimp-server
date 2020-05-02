@@ -8,9 +8,9 @@ from util.util import get_origin_code
 from util.db_populate import populate_DB
 
 
-def get_holiday(constraints, softPrefs, prefScores, feedback=None):
+def get_holiday(constraints, soft_prefs, pref_scores, feedback=None):
     destination = calculate_destination(
-        constraints, softPrefs, prefScores, feedback)
+        constraints, soft_prefs, pref_scores, feedback)
 
     dest_code_query = db_manager.query("""
     SELECT city_code FROM destination WHERE id={dest_id}
@@ -36,13 +36,13 @@ def get_holiday(constraints, softPrefs, prefScores, feedback=None):
     travel, accommodation = choose_travel_and_accommodation(
         travel_options, accommodation_options, constraints["budget_leq"], feedback)
 
-    pois = get_POIs_for_destination(destination["id"])
+    pois = get_POIs_for_destination(destination["id"], pref_scores)
     itinerary = calculate_itinerary(
-        dict(pois), travel, accommodation, constraints, softPrefs, prefScores)
+        dict(pois), travel, accommodation, constraints, soft_prefs, pref_scores)
 
     pois_list = get_pois_list(pois)
 
-    return json.dumps(dict(name=destination["name"], wiki=destination["wiki"], imageURL=destination["image_url"], destId=destination["id"], itinerary=itinerary, travel=travel, accommodation=accommodation, all_travel=travel_options, all_accommodation=accommodation_options, all_activities=pois_list))
+    return json.dumps(dict(name=destination["name"], wiki=destination["wiki"], imageURLs=destination["image_urls"], destId=destination["id"], itinerary=itinerary, travel=travel, accommodation=accommodation, all_travel=travel_options, all_accommodation=accommodation_options, all_activities=pois_list))
 
 
 def get_pois_list(pois):
