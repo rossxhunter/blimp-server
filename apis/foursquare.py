@@ -41,11 +41,11 @@ def get_POI_match(name, latitude, longitude, near):
         query=name,
         # address="210弄 Taikang Rd, Da Pu Qiao, Huangpu, China"
     )
-    resp = requests.get(url=base_url+'search', params=params)
+    resp = requests.get(url=base_url+'explore', params=params)
     data = json.loads(resp.text)
-    if "venues" not in data["response"]:
+    if "groups" not in data["response"]:
         return None
-    return data["response"]["venues"]
+    return data["response"]["groups"][0]["items"]
 
 
 def get_POI_details(id):

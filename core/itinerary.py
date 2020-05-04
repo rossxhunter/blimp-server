@@ -369,7 +369,7 @@ def TSP(pois, edges):
 
 def get_POIs_for_destination(destination, pref_scores):
     getPOIsQuery = db_manager.query("""
-    SELECT poi.id,poi.name,poi.latitude,poi.longitude,poi.num_ratings,poi.rating,poi.wiki_description,poi_photo.url,categories.id,categories.name,categories.culture_score,categories.learn_score,categories.relax_score FROM poi
+    SELECT poi.id,poi.name,poi.latitude,poi.longitude,poi.num_ratings,poi.rating,poi.wiki_description,poi_photo.url,categories.id,categories.name,categories.icon_prefix,categories.culture_score,categories.learn_score,categories.relax_score FROM poi
     JOIN poi_photo ON poi_photo.poi_id = poi.id
     JOIN categories ON poi.foursquare_category_id = categories.id
     WHERE poi.destination_id={destination}
@@ -379,10 +379,10 @@ def get_POIs_for_destination(destination, pref_scores):
     pois = {}
     for poi in getPOIsQuery:
         score = 1
-        poi_scores = {"culture": poi[10] or 3,
-                      "learn": poi[11] or 3, "relax": poi[12] or 3}
+        poi_scores = {"culture": poi[11] or 3,
+                      "learn": poi[12] or 3, "relax": poi[13] or 3}
         for pref in pref_scores.keys():
             score += 5 - abs(pref_scores[pref] - poi_scores[pref])
         pois[poi[0]] = {"name": poi[1],
-                        "latitude": poi[2], "longitude": poi[3], "score": score, "popularity": poi[4] if poi[4] != None else 0, "rating": poi[5] if poi[5] != None else 0, "description": poi[6], "bestPhoto": poi[7], "categoryId": poi[8], "category": poi[9]}
+                        "latitude": poi[2], "longitude": poi[3], "score": score, "popularity": poi[4] if poi[4] != None else 0, "rating": poi[5] if poi[5] != None else 0, "description": poi[6], "bestPhoto": poi[7], "categoryId": poi[8], "category": poi[9], "categoryIcon": poi[10]}
     return pois

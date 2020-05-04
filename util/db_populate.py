@@ -12,7 +12,7 @@ def populate_DB():
     # calculate_tourist_scores()
     # populate_POI_wiki_desc()
     # fetch_POI_image_urls()
-    populate_foursquare_POI_details()
+    # populate_foursquare_POI_details()
     # populate_facebook_POI_details()
     # calculate_destination_scores()
     # populate_destination_images()
@@ -38,7 +38,7 @@ def populate_foursquare_POI_details():
     SELECT poi.id, poi.name, poi.latitude, poi.longitude, destination.name, destination.country_code 
     FROM poi 
     JOIN destination ON poi.destination_id = destination.id
-    WHERE poi.id = "ChIJ29SwJftwsjURZYXg4jufPhY"
+    WHERE foursquare_category_id IS NULL AND tourist_score IS NOT NULL
     """)
     # WHERE foursquare_category_id IS NULL AND tourist_score IS NOT NULL
     for poi in pois:
@@ -49,6 +49,7 @@ def populate_foursquare_POI_details():
             for match in matches:
                 if "flags" in match and "exactMatch" in match["flags"]:
                     details = match
+            details = details["venue"]
             foursquare_insert = db_manager.insert("""
             UPDATE poi SET foursquare_category_id = "{category_id}", cat_name = "{cat_name}"
             WHERE id = "{poi_id}"
