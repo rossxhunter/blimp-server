@@ -1,13 +1,9 @@
 from config import db_manager
+from datetime import datetime
 
 
-def add_new_clicks_record(session_id):
+def add_click(session_id, action, mode, metadata):
+    timestamp = datetime.now()
     db_manager.insert("""
-    INSERT INTO clicks (id) VALUES ("{id}")
-    """.format(id=session_id))
-
-
-def increment_click(session_id, click):
-    db_manager.insert("""
-    UPDATE clicks SET {click} = {click} + 1 WHERE id = "{id}"
-    """.format(click=click, id=session_id))
+    INSERT INTO clicks (id, mode, action, metadata, timestamp) VALUES ("{id}", "{mode}", "{action}", "{metadata}", "{timestamp}")
+    """.format(action=action, id=session_id, timestamp=timestamp, metadata=metadata.replace('"', "'"), mode=mode))

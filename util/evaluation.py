@@ -1,5 +1,6 @@
 from config import db_manager
 from util.util import list_to_str_no_brackets_add_speech_marks
+from core import itinerary
 
 
 def get_poi_details_for_itinerary(itinerary):
@@ -12,7 +13,7 @@ def get_poi_details_for_itinerary(itinerary):
         return {}
 
     details_query = db_manager.query("""
-    SELECT poi.id, poi.name, rating, url, wiki_description, categories.name
+    SELECT poi.id, poi.name, rating, url, wiki_description, categories.name, categories.icon_prefix
     FROM poi
     JOIN poi_photo ON poi_photo.poi_id = poi.id
     JOIN categories ON categories.id = poi.foursquare_category_id
@@ -28,23 +29,27 @@ def get_poi_details_for_itinerary(itinerary):
             details = poi_details[poi["id"]]
             if day[0] not in itinerary_with_details:
                 itinerary_with_details[day[0]] = []
-            itinerary_with_details[day[0]].append({"id": poi["id"], "startTime": poi["startTime"], "duration": poi["duration"], "name": details[1], "rating": details[2],
-                                                   "bestPhoto": details[3], "description": details[4], "category": details[5]})
+            itinerary_with_details[day[0]].append({"id": poi["id"], "startTime": poi["startTime"], "duration": poi["duration"], "travelTimeToNext": poi["travelTimeToNext"], "travelMethodToNext": poi["travelMethodToNext"], "name": details[1], "rating": details[2],
+                                                   "bestPhoto": details[3], "description": details[4], "category": details[5], "categoryIcon": details[6]})
 
     return itinerary_with_details
 
 
 def get_external_itinerary(provider, dest_id):
     itinerary_elements = db_manager.query("""
-    SELECT poi_id, day, start_time, duration
+    SELECT poi_id, day, start_time, duration, travel_time_to_next, travel_method_to_next
     FROM external_itinerary
     WHERE destination_id = {dest_id} AND provider = "{provider}"
     ORDER BY day, start_time
     """.format(dest_id=dest_id, provider=provider))
-    itinerary = {}
+    itin = {}
     for elem in itinerary_elements:
-        if elem[1] not in itinerary:
-            itinerary[elem[1]] = []
-        itinerary[elem[1]].append(
-            {"id": elem[0], "startTime": elem[2], "duration": elem[3]})
-    return itinerary
+        if elem[1] not in itin:
+            itin[elem[1]] = []
+        itin[elem[1]].append(
+            {"id": elem[0], "startTime": elem[2], "duration": elem[3], "travelTimeToNext": elem[4], "travelMethodToNext": elem[5]})
+    timed_itinerary = {}
+    for day in itin.items():
+        timed_itinerary[day[0]] = itinerary.calculate_itinerary_for_evaluation(
+            dest_id, 3, poi_order=day[1], day=day[0])[0]
+    return timed_itinerary

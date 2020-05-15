@@ -19,7 +19,7 @@ def get_accommodation_for_destination(dest, check_in_date, check_out_date, trave
     else:
         accommodation_stars_range = list(range(accommodation_stars, 6))
     accommodation = amadeus.shopping.hotel_offers.get(
-        cityCode=dest, checkInDate=check_in_date, checkOutDate=check_out_date, adults=travellers["adults"], amenities=list_to_str_no_brackets(accommodation_amenities), ratings=list_to_str_no_brackets(accommodation_stars_range), sort="PRICE", currency=currency).result
+        view="FULL", cityCode=dest, checkInDate=check_in_date, checkOutDate=check_out_date, adults=travellers["adults"], sort="PRICE", currency=currency).result
     # f = open("data/hotels_spec_data.txt", "w")
     # f.write(json.dumps(accommodation))
     # f.close()

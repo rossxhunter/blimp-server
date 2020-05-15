@@ -22,8 +22,18 @@ def fetch_images(google_id):
     return details["result"]["photos"]
 
 
+def get_hotel_id(name, lat, lng):
+    result = client.find_place(
+        name,
+        "textquery",
+        location_bias="point:{lat},{lng}".format(
+            lat=lat, lng=lng),
+        language="en",
+    )
+    return result["candidates"][0]["place_id"]
+
+
 def fetch_dest_id(dest):
-    dest_images = []
     result = client.find_place(
         dest[1],
         "textquery",
@@ -49,7 +59,7 @@ def fetch_image_url(ref):
     return photo
 
 
-def get_nearby_POIs(latitude, longitude, text_location):
+def get_nearby_POIs(latitude, longitude, lang):
     location = [latitude, longitude]
     all_pois = []
     collected_all = False
@@ -62,7 +72,7 @@ def get_nearby_POIs(latitude, longitude, text_location):
             nearby_pois = requests.get(url=url, params=params).json()
         else:
             nearby_pois = client.places_nearby(location=list_to_str_no_brackets(location), keyword='tourist',
-                                               language="en", radius=10000)
+                                               language=lang, radius=10000)
         all_pois.extend(nearby_pois["results"])
         if "next_page_token" not in nearby_pois:
             collected_all = True
@@ -75,3 +85,16 @@ def get_nearby_POIs(latitude, longitude, text_location):
 
 def get_visit_durations():
     pass
+
+
+def search_for_POI(query, latitude, longitude):
+    result = client.find_place(
+        query,
+        "textquery",
+        fields=["place_id", "name", "photos",
+                "types", "rating", "user_ratings_total", "geometry"],
+        location_bias="point:{lat},{lng}".format(
+            lat=latitude, lng=longitude),
+        language="en",
+    )
+    return result["candidates"][0]

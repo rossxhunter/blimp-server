@@ -5,6 +5,7 @@ from util.util import list_to_tuple, listToStr, get_list_of_values_from_list_of_
 from util.exceptions import NoResults
 from core import accommodation, flights
 from core.flights import parse_duration
+from datetime import datetime
 
 NUM_DEST_ATTEMPTS = 3
 
@@ -35,11 +36,37 @@ def calculate_destination(constraints, soft_prefs, pref_scores, feedback):
     dest_id, name, flight_options, accommodation_options = select_dest_from_ranked_dests(
         dests, ranked_dests, constraints, feedback)
 
-    wiki_entry = wikipedia.getWikiDescription(name)
-
     image_urls = get_dest_image_urls(dest_id)
 
-    return {"name": name, "wiki": wiki_entry, "image_urls": image_urls, "id": dest_id, "flights": flight_options, "accommodation": accommodation_options}
+    wiki_entry, country_code, country_name = get_dest_info(dest_id)
+
+    month = datetime.strptime(constraints["departure_date"], "%Y-%m-%d").month
+
+    av_temp_c, num_days_rainfall = get_dest_weather(dest_id, month)
+
+    return {"name": name, "av_temp_c": av_temp_c, "num_days_rainfall": num_days_rainfall, "country_code": country_code, "country_name": country_name, "wiki": wiki_entry, "image_urls": image_urls, "id": dest_id, "flights": flight_options, "accommodation": accommodation_options}
+
+
+def get_dest_weather(dest_id, month):
+    weather_query = db_manager.query("""
+    SELECT average_temp_c, num_days_rainfall
+    FROM destination
+    JOIN climate ON destination.weather_station_id = climate.weather_station_id
+    WHERE destination.id = {dest_id} AND month = {month}
+    """.format(dest_id=dest_id, month=month))
+    if len(weather_query) == 0:
+        return (20, 4)
+    return weather_query[0]
+
+
+def get_dest_info(dest_id):
+    country_query = db_manager.query("""
+    SELECT destination.wiki_description, country.ISO, country.Country
+    FROM destination
+    JOIN country ON destination.country_code = country.ISO
+    WHERE destination.id = {dest_id}
+    """.format(dest_id=dest_id))
+    return (country_query[0][0] or "", country_query[0][1].lower(), country_query[0][2])
 
 
 def get_dest_image_urls(dest_id):
@@ -227,7 +254,6 @@ def scores_recommender(pref_scores, dest_similarities):
     """.format(dests=list_to_tuple(dest_similarities.keys())))
 
     for dest_scores in dests_query:
-        print(dest_scores)
         pref_scores_similarity = abs(
             pref_scores["culture"] - dest_scores[1]) + abs(pref_scores["learn"] - dest_scores[2]) + abs(pref_scores["relax"] - dest_scores[3])
         pref_scores_similarities[dest_scores[0]] = pref_scores_similarity

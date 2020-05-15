@@ -1,23 +1,181 @@
 from config import db_manager
-from apis import foursquare, wikipedia, google_places, pixabay, facebook_places
-from core import activities
+from apis import foursquare, wikipedia, google_places, pixabay, facebook_places, wmo, geonames
+from core import flights, accommodation
 import urllib
 import shutil
 import os
+import requests
+import math
+from geopy import distance
 
 
 def populate_DB():
     # add_codes()
+    # add_missing_POIs_from_external_itineraries()
+
+    # ADD POI DETAILS
     # populate_POI_table()
-    # calculate_tourist_scores()
+    # add_original_names()
     # populate_POI_wiki_desc()
     # fetch_POI_image_urls()
     # populate_foursquare_POI_details()
     # populate_facebook_POI_details()
-    # calculate_destination_scores()
+
+    # ADD DEST DETAILS
+    # calculate_tourist_scores()
     # populate_destination_images()
     # fetch_dest_image_urls()
+    # populate_dest_wiki()
+    # populate_weather_ids()
+
+    # populate_weather_stations()
+    # populate_weather_data()
+
+    # populate_flyable_dests()
+    # populate_hotels()
+    # populate_hotel_details()
+    # fetch_hotel_image_urls()
+
+    # OLD calculate_destination_scores()
     return
+
+
+def fetch_hotel_image_urls():
+    photo_query = db_manager.query("""
+    SELECT reference, url FROM hotel_photo
+    WHERE url IS NULL
+    """)
+    for photo in photo_query:
+        url = google_places.fetch_image_url(photo[0])
+        db_manager.insert("""
+        UPDATE hotel_photo SET url = "{url}"
+        WHERE reference = "{reference}"
+        """.format(url=url, reference=photo[0]))
+
+
+def populate_hotel_details():
+    hotel_query = db_manager.query("""
+    SELECT hotel.id, hotel.google_id
+    FROM hotel
+    LEFT JOIN hotel_photo ON hotel_photo.hotel_id = hotel.id
+    WHERE hotel_photo.reference IS NULL
+    """)
+    for hotel in hotel_query:
+        hotel_details = google_places.get_poi_details(hotel[1])
+        is_correct = "lodging" in hotel_details["types"]
+        db_manager.insert("""
+        UPDATE hotel SET is_correct = {is_correct}, rating = {rating}
+        WHERE id = "{hotel_id}"
+        """.format(is_correct=is_correct, hotel_id=hotel[0], rating=hotel_details["rating"]))
+        if is_correct:
+            for photo in hotel_details["photos"]:
+                db_manager.insert("""
+                INSERT INTO hotel_photo (reference, hotel_id, height, width)
+                VALUES ("{reference}", "{hotel_id}", {height}, {width})
+                """.format(reference=photo["photo_reference"], hotel_id=hotel[0], height=photo["height"], width=photo["width"]))
+
+
+def populate_hotels():
+    dests_query = db_manager.query("""
+    SELECT city_code FROM destination
+    WHERE tourist_score IS NOT NULL
+    ORDER BY tourist_score DESC
+    LIMIT 1
+    """)
+    check_in_date = "2020-08-27"
+    check_out_date = "2020-08-30"
+    for dest in dests_query:
+        acc_options = accommodation.get_accommodation_options(
+            dest[0], check_in_date, check_out_date, {"adults": 2}, "hotel", 3, [], "GBP")
+        for acc in acc_options:
+            exists = db_manager.query("""
+            SELECT id FROM hotel WHERE id = "{hotel_id}"
+            """.format(hotel_id=acc["hotelId"]))
+            if len(exists) == 0:
+                google_id = google_places.get_hotel_id(
+                    acc["name"], acc["latitude"], acc["longitude"])
+                db_manager.insert("""
+                INSERT INTO hotel (id, provider, google_id, name)
+                VALUES ("{hotel_id}", "amadeus", "{google_id}", "{hotel_name}")
+                """.format(hotel_id=acc["hotelId"], google_id=google_id, hotel_name=acc["name"]))
+
+
+def populate_flyable_dests():
+    origin = "LON"
+    origin_id = 2643743
+    departure_date = "2020-08-27"
+    return_date = "2020-08-30"
+    available_flights = flights.get_all_return_flights(
+        origin, departure_date, return_date)
+    for flight in available_flights.items():
+        db_manager.insert("""
+        REPLACE INTO flyable_destination (origin, destination, departure_date, return_date, name, price_amount, price_currency)
+        VALUES ({origin}, {destination}, "{departure_date}",
+                "{return_date}", "{name}", {price_amount}, "{price_currency}")
+        """.format(origin=origin_id, destination=flight[0], departure_date=departure_date, return_date=return_date, name=flight[1]["name"], price_amount=flight[1]["price"]["amount"], price_currency=flight[1]["price"]["currency"]))
+
+
+def populate_dest_wiki():
+    dests_query = db_manager.query("""
+    SELECT destination.id, destination.name, country.Country FROM destination
+    JOIN country ON country.ISO = destination.country_code
+    WHERE wiki_description IS NULL AND tourist_score IS NOT NULL
+    """)
+    for dest_id, dest_name, country_name in dests_query:
+        wiki_desc = wikipedia.get_wiki_description(
+            dest_name + ", " + country_name)
+        db_manager.insert("""
+        UPDATE destination SET wiki_description = "{wiki_desc}"
+        WHERE id = {dest_id}
+        """.format(wiki_desc=wiki_desc, dest_id=dest_id))
+
+
+def populate_weather_stations():
+    n = 2958
+    for i in range(1, n+1):
+        weather_data = wmo.fetch_weather_data(i)
+        if weather_data != None:
+            db_manager.insert("""
+            INSERT INTO weather_station (id, latitude, longitude, city_name)
+            VALUES ({station_id}, {latitude}, {longitude}, "{city_name}")
+            """.format(station_id=i, latitude=weather_data["cityLatitude"], longitude=weather_data["cityLongitude"], city_name=weather_data["cityName"]))
+
+
+def populate_weather_data():
+    n = 2958
+    for i in range(703, n+1):
+        weather_data = wmo.fetch_weather_data(i)
+        if weather_data != None:
+            climate_months = weather_data["climate"]["climateMonth"]
+            for month in climate_months:
+                db_manager.insert("""
+                INSERT INTO climate (wmo_id, month, average_temp_c, num_days_rainfall)
+                VALUES ({wmo_id}, {month}, {average_temp}, {num_days_rainfall})
+                """.format(wmo_id=i, month=month["month"], average_temp=(float(month["maxTemp"])+float(month["minTemp"]))/2 if (month["maxTemp"] != None and month["minTemp"] != None and month["maxTemp"] != "" and month["minTemp"] != "") else "NULL", num_days_rainfall=month["raindays"] if (month["raindays"] != None and month["raindays"] != "") else "NULL"))
+
+
+def populate_weather_ids():
+    dests_query = db_manager.query("""
+    SELECT id, latitude, longitude FROM destination
+    WHERE tourist_score IS NOT NULL AND weather_station_id IS NULL
+    ORDER BY tourist_score DESC
+    """)
+    for dest in dests_query:
+        candidates_query = db_manager.query("""
+        SELECT id, latitude, longitude FROM weather_station
+        """)
+        best_candidate = candidates_query[0]
+        closest_distance = 1000000
+        for candidate in candidates_query:
+            d = distance.distance(
+                (dest[1], dest[2]), (candidate[1], candidate[2])).km
+            if d < closest_distance:
+                closest_distance = d
+                best_candidate = candidate
+        db_manager.insert("""
+        UPDATE destination SET weather_station_id = {station_id}
+        WHERE id = {dest_id}
+        """.format(dest_id=dest[0], station_id=best_candidate[0]))
 
 
 def populate_facebook_POI_details():
@@ -35,25 +193,31 @@ def populate_facebook_POI_details():
 
 def populate_foursquare_POI_details():
     pois = db_manager.query("""
-    SELECT poi.id, poi.name, poi.latitude, poi.longitude, destination.name, destination.country_code 
-    FROM poi 
+    SELECT poi.id, poi.name, poi.original_name, poi.latitude, poi.longitude, destination.name, destination.country_code
+    FROM poi
     JOIN destination ON poi.destination_id = destination.id
-    WHERE foursquare_category_id IS NULL AND tourist_score IS NOT NULL
+    WHERE tourist_score IS NOT NULL AND foursquare_category_id IS NULL
     """)
     # WHERE foursquare_category_id IS NULL AND tourist_score IS NOT NULL
+    forbidden_categories = [
+        "4bf58dd8d48988d1e1931735", "4bf58dd8d48988d1ff931735"]
     for poi in pois:
         matches = foursquare.get_POI_match(
-            poi[1], poi[2], poi[3], poi[4] + "," + poi[5])
+            poi[2] or poi[1], poi[3], poi[4], poi[5] + "," + poi[6])
         if matches != None and len(matches) > 0:
-            details = matches[0]
+            i = 0
+            found = False
             for match in matches:
-                if "flags" in match and "exactMatch" in match["flags"]:
-                    details = match
-            details = details["venue"]
-            foursquare_insert = db_manager.insert("""
-            UPDATE poi SET foursquare_category_id = "{category_id}", cat_name = "{cat_name}"
-            WHERE id = "{poi_id}"
-            """.format(poi_id=poi[0], category_id=details["categories"][0]["id"] if len(details["categories"]) != 0 else "4d4b7105d754a06375d81259", cat_name=details["categories"][0]["name"] if len(details["categories"]) != 0 else ""))
+                details = match
+                if details["categories"][0]["id"] != None and details["categories"][0]["id"] not in forbidden_categories:
+                    found = True
+                    break
+            if found == True:
+                # details = details["venue"]
+                foursquare_insert = db_manager.insert("""
+                UPDATE poi SET foursquare_category_id = "{category_id}", cat_name = "{cat_name}"
+                WHERE id = "{poi_id}"
+                """.format(poi_id=poi[0], category_id=details["categories"][0]["id"] if len(details["categories"]) != 0 else "default", cat_name=details["categories"][0]["name"] if len(details["categories"]) != 0 else ""))
 
 
 def populate_POI_table_from_google_details():
@@ -99,13 +263,15 @@ def fetch_POI_image_urls():
 
 def populate_POI_wiki_desc():
     pois = db_manager.query("""
-    SELECT poi.id, poi.name, destination.name, destination.country_code FROM poi 
+    SELECT poi.id, poi.name, destination.name, destination.country_code FROM poi
     JOIN destination ON destination.id = poi.destination_id
-    WHERE wiki_description IS NULL
+    WHERE poi.wiki_description IS NULL
     """)
     for poi in pois:
-        desc = wikipedia.getWikiDescription(
-            poi[1])
+        search_term = poi[1]
+        if poi[2] not in search_term:
+            search_term += " " + poi[2]
+        desc = wikipedia.get_wiki_description(search_term)
         db_manager.insert("""
         UPDATE poi SET wiki_description = "{desc}"
         WHERE id = "{id}"
@@ -114,17 +280,17 @@ def populate_POI_wiki_desc():
 
 def calculate_tourist_scores():
     dests = db_manager.query("""
-    SELECT id FROM destination 
-    WHERE tourist_score IS NULL AND city_code IS NOT NULL
-    ORDER BY population DESC 
-    LIMIT 100
+    SELECT id FROM destination
+    WHERE tourist_score = 0 AND city_code IS NOT NULL
+    ORDER BY population DESC
+
     """)
     for dest in dests:
         pois = db_manager.query("""
         SELECT rating, num_ratings FROM poi
         WHERE destination_id = {dest_id}
         ORDER BY num_ratings DESC
-        LIMIT 30
+        LIMIT 10
         """.format(dest_id=dest[0]))
         score = 0
         for poi in pois:
@@ -136,17 +302,61 @@ def calculate_tourist_scores():
         """.format(score=score, dest_id=dest[0]))
 
 
+def add_original_names():
+    dests = db_manager.query("""
+    SELECT destination.id, destination.latitude, destination.longitude, country.Languages
+    FROM destination
+    JOIN country ON country.ISO = destination.country_code
+    WHERE city_code IS NOT NULL AND tourist_score IS NOT NULL AND google_id IS NULL
+    """)
+    for dest in dests:
+        lang = dest[3].split(',')[0].split('-')[0]
+        pois = google_places.get_nearby_POIs(dest[1], dest[2], lang)
+        for poi in pois:
+            db_manager.insert("""
+            UPDATE poi SET original_name = "{name}"
+            WHERE id = "{poi_id}"
+            """.format(name=poi["name"], poi_id=poi["place_id"]))
+
+
+def add_missing_POIs_from_external_itineraries():
+    dest_id = 2158177
+    poi_names = ["Melbourne Central"]
+    dest_query = db_manager.query("""
+    SELECT latitude, longitude FROM destination
+    WHERE id = {dest_id}
+    """.format(dest_id=dest_id))
+    for poi_name in poi_names:
+        poi = google_places.search_for_POI(
+            poi_name, dest_query[0][0], dest_query[0][1])
+        db_manager.insert("""
+        INSERT INTO poi (id, destination_id, name, latitude, longitude, rating, num_ratings, types)
+        VALUES ("{id}", {destination_id}, "{name}", {latitude},
+                {longitude}, {rating}, {num_ratings}, "{types}")
+        """.format(id=poi["place_id"], destination_id=dest_id, name=poi["name"].replace('"', ''), latitude=poi["geometry"]["location"]["lat"], longitude=poi["geometry"]["location"]["lng"], rating=poi["rating"] if "rating" in poi else "NULL", num_ratings=poi["user_ratings_total"] if "user_ratings_total" in poi else "NULL", types=str(poi["types"]).replace('"', '').replace("'", "")))
+        if "photos" in poi:
+            for photo in poi["photos"]:
+                db_manager.insert("""
+                INSERT INTO poi_photo (reference, poi_id, height, width)
+                VALUES ("{reference}", "{poi_id}", {height}, {width})
+                """.format(reference=photo["photo_reference"], poi_id=poi["place_id"], height=photo["height"], width=photo["width"]))
+
+
 def populate_POI_table():
     dests = db_manager.query("""
-    SELECT id, latitude, longitude, name, country_code FROM destination 
+    SELECT id, latitude, longitude, name, country_code FROM destination
     WHERE city_code IS NOT NULL AND tourist_score IS NULL
-    ORDER BY population DESC 
-    LIMIT 100
+    ORDER BY population DESC
+    LIMIT 5
     """)
     poisForDB = []
     for dest in dests:
+        db_manager.insert("""
+        UPDATE destination SET tourist_score = 0
+        WHERE id = {dest_id}
+        """.format(dest_id=dest[0]))
         pois = google_places.get_nearby_POIs(
-            dest[1], dest[2], dest[3] + "," + dest[4])
+            dest[1], dest[2], "en")
         for poi in pois:
             db_manager.insert("""
             INSERT INTO poi (id, destination_id, name, latitude, longitude, rating, num_ratings, types)
@@ -187,9 +397,9 @@ def populate_destination_images():
         """.format(google_id=google_id, dest_id=dest[0]))
 
     dests_query = db_manager.query("""
-    SELECT id, google_id FROM destination
-    WHERE city_code IS NOT NULL AND tourist_score IS NOT NULL AND google_id IS NOT NULL
-    ORDER BY tourist_score DESC
+    SELECT destination.id, destination.google_id FROM destination
+    LEFT JOIN destination_photo ON destination.id=destination_photo.dest_id
+    WHERE destination_photo.reference IS NULL AND tourist_score IS NOT NULL
     """)
 
     for dest in dests_query:

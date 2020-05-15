@@ -42,7 +42,7 @@ def get_holiday(constraints, soft_prefs, pref_scores, feedback=None):
 
     pois_list = get_pois_list(pois)
 
-    return json.dumps(dict(name=destination["name"], wiki=destination["wiki"], imageURLs=destination["image_urls"], destId=destination["id"], itinerary=itinerary, travel=travel, accommodation=accommodation, all_travel=travel_options, all_accommodation=accommodation_options, all_activities=pois_list))
+    return json.dumps(dict(name=destination["name"], weather={"temp": destination["av_temp_c"], "rainfall": destination["num_days_rainfall"]}, countryInfo={"countryCode": destination["country_code"], "countryName": destination["country_name"]}, wiki=destination["wiki"], imageURLs=destination["image_urls"], destId=destination["id"], itinerary=itinerary, travel=travel, accommodation=accommodation, all_travel=travel_options, all_accommodation=accommodation_options, all_activities=pois_list))
 
 
 def get_pois_list(pois):

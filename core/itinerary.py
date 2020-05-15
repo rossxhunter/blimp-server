@@ -7,45 +7,51 @@ import apis.amadeus as amadeus
 from util.exceptions import NoResults
 
 
-def calculate_itinerary_for_evaluation(dest_id, num_days, constraints, soft_prefs, pref_scores):
-    pois = get_POIs_for_destination(dest_id, pref_scores)
+def calculate_itinerary_for_evaluation(dest_id, num_days, poi_order=None, day=None, window=[8, 17], essential_travel_methods=[]):
+    pois = get_POIs_for_destination(dest_id, {})
     start_location = db_manager.query("""
-    SELECT latitude, longitude FROM destination WHERE id = {dest_id}
+    SELECT id, latitude, longitude FROM destination WHERE id = {dest_id}
     """.format(dest_id=dest_id))[0]
-    start_node = ("start", {
-        "latitude": start_location[0], "longitude": start_location[1], "score": 0, "popularity": 0, "rating": 0})
+    start_node = (str(start_location[0]), {"is_start": True,
+                                           "latitude": start_location[1], "longitude": start_location[2], "score": 0, "popularity": 0, "rating": 0})
     edges = get_durations(pois, start_node)
     T = 30000000
-    budgets = [8 * 60 * 60] * num_days
-    start_times = [8 * 60 * 60] * num_days
-    preferred_activities = soft_prefs["preferred_activities"]
-    essential_activities = constraints["essential_activities"]
+    budgets = [(window[1] - window[0]) * 60 * 60] * num_days
+    start_times = [window[0] * 60 * 60] * num_days
+    if poi_order == None:
+        k = len(budgets)
+    else:
+        k = 1
+        budgets = [budgets[day]]
+        start_times = [start_times[day]]
+        visit_duration = [list(map(lambda p: p["duration"], poi_order))]
     P, times = multi_tour(
-        pois, edges, budgets, start_times, num_days, start_node, T, None, preferred_activities, essential_activities)
-    visitDuration = 2*60*60
+        pois, edges, budgets, start_times, k, start_node, T, poi_order, essential_travel_methods, [], [])
     itinerary = {}
     for i in range(0, len(P)):
         day_itinerary = []
         for j in range(0, len(P[i])):
-            day_itinerary.append(
-                {"id": P[i][j][0], "name": P[i][j][1]["name"], "description": P[i][j][1]["description"], "latitude": P[i][j][1]["latitude"], "longitude": P[i][j][1]["longitude"], "score": P[i][j][1]["score"], "rating": P[i][j][1]["rating"], "popularity": P[i][j][1]["popularity"], "bestPhoto": P[i][j][1]["bestPhoto"], "category": P[i][j][1]["category"], "startTime": times[i][j], "duration": visitDuration})
+            a = P[i][j][1]
+            a["id"] = P[i][j][0]
+            a["startTime"] = times[i][j]
+            day_itinerary.append(a)
         itinerary[i] = day_itinerary
     return itinerary
 
 
-def calculate_itinerary(pois, travel, accommodation, constraints, soft_prefs, pref_scores, poi_order=None, day=None):
-    start_node = ("start", {
-        "latitude": accommodation["latitude"], "longitude": accommodation["longitude"], "score": 0, "popularity": 0, "rating": 0})
+def calculate_itinerary(pois, travel, accommodation, constraints, soft_prefs, pref_scores, poi_order=None, day=None, window=[8, 17], essential_travel_methods=[]):
+    start_node = (accommodation["hotelId"], {"is_start": True,
+                                             "latitude": accommodation["latitude"], "longitude": accommodation["longitude"], "score": 0, "popularity": 0, "rating": 0})
 
     edges = get_durations(pois, start_node)
 
     T = 3000000000
 
-    budgets, start_times = get_daily_time_budgets_and_start_times(travel)
+    budgets, start_times = get_daily_time_budgets_and_start_times(
+        travel, window)
 
     if poi_order == None:
         k = len(budgets)
-        visit_duration = [[2*60*60] * 10] * k
     else:
         k = 1
         budgets = [budgets[day]]
@@ -55,31 +61,32 @@ def calculate_itinerary(pois, travel, accommodation, constraints, soft_prefs, pr
     preferred_activities = soft_prefs["preferred_activities"]
     essential_activities = constraints["essential_activities"]
     P, times = multi_tour(
-        pois, edges, budgets, start_times, k, start_node, T, poi_order, preferred_activities, essential_activities)
-
+        pois, edges, budgets, start_times, k, start_node, T, poi_order, essential_travel_methods, preferred_activities, essential_activities)
     itinerary = {}
     for i in range(0, len(P)):
         day_itinerary = []
         for j in range(0, len(P[i])):
-            day_itinerary.append(
-                {"id": P[i][j][0], "name": P[i][j][1]["name"], "description": P[i][j][1]["description"], "latitude": P[i][j][1]["latitude"], "longitude": P[i][j][1]["longitude"], "score": P[i][j][1]["score"], "rating": P[i][j][1]["rating"], "popularity": P[i][j][1]["popularity"], "bestPhoto": P[i][j][1]["bestPhoto"], "category": P[i][j][1]["category"], "categoryId": P[i][j][1]["categoryId"], "startTime": times[i][j], "duration": visit_duration[i][j]})
+            a = P[i][j][1]
+            a["id"] = P[i][j][0]
+            a["startTime"] = times[i][j]
+            day_itinerary.append(a)
         itinerary[i] = day_itinerary
     return itinerary
 
 
-def get_daily_time_budgets_and_start_times(travel):
+def get_daily_time_budgets_and_start_times(travel, window):
     budgets = []
     start_times = []
     time_from_airport_to_hotel = 1.5 * 60 * 60
     time_from_hotel_to_airport = 3 * 60 * 60
-    standard_budget = 8 * 60 * 60
+    standard_budget = (window[1] - window[0]) * 60 * 60
     arrival_date = datetime.strptime(
-        travel["outbound"]["departure"]["date"], "%Y%m%d")
+        travel["outbound"]["arrival"]["date"], "%Y%m%d")
     departure_date = datetime.strptime(
         travel["return"]["departure"]["date"], "%Y%m%d")
     stay_duration = departure_date.day - arrival_date.day + 1
-    start_time = 8 * 60 * 60
-    end_time = 16 * 60 * 60
+    start_time = window[0] * 60 * 60
+    end_time = window[1] * 60 * 60
     for i in range(0, stay_duration):
         if i == 0:
             arrival_time = datetime.strptime(
@@ -87,7 +94,7 @@ def get_daily_time_budgets_and_start_times(travel):
             arrival_seconds = (arrival_time.hour * 60 * 60) + \
                 (arrival_time.minute * 60) + time_from_airport_to_hotel
             b = end_time - arrival_seconds
-            start_times.append(arrival_seconds)
+            start_times.append(max(arrival_seconds, start_time))
         elif i == stay_duration - 1:
             departure_time = datetime.strptime(
                 travel["return"]["departure"]["time"], "%H:%M")
@@ -105,7 +112,7 @@ def get_daily_time_budgets_and_start_times(travel):
     return budgets, start_times
 
 
-def multi_tour(pois, edges, budgets, start_times, num_days, start_node, target_value, poi_order, preferred_activities, essential_activities):
+def multi_tour(pois, edges, budgets, start_times, num_days, start_node, target_value, poi_order, essential_travel_methods, preferred_activities, essential_activities):
     P_star = []
     t = []
     # for poi in pois.items():
@@ -120,7 +127,7 @@ def multi_tour(pois, edges, budgets, start_times, num_days, start_node, target_v
         return (P_star, t)
     for i in range(0, (num_days-q)):
         P, t_P = single_tour(
-            pois, edges, budgets[i], start_times[i], start_node, poi_order, preferred_activities, essential_activities)
+            pois, edges, budgets[i], start_times[i], start_node, poi_order, essential_travel_methods, preferred_activities, essential_activities)
         P, t_P = truncate_tour(P, t_P, target_value,
                                preferred_activities, essential_activities)
         P_star.append(P)
@@ -153,7 +160,7 @@ def truncate_tour(P, t_P, target_value, preferred_activities, essential_activiti
     return (P, t_P)
 
 
-def single_tour(pois, edges, budget, start_time, start_node, poi_order, preferred_activities, essential_activities):
+def single_tour(pois, edges, budget, start_time, start_node, poi_order, essential_travel_methods, preferred_activities, essential_activities):
     P_star = [start_node]
     P = []
     visit_durations = None
@@ -166,22 +173,27 @@ def single_tour(pois, edges, budget, start_time, start_node, poi_order, preferre
         best_margin = -1
         P_star = None
         poi_found = False
-        for poi in pois.items():
-            if poi not in P and not poi_found:
-                P2 = list(P)
-                P2.append(poi)
-                P2 = TSP(list(P2), edges)
-                margin = (Utility(P2, preferred_activities, essential_activities) - Utility(P, preferred_activities, essential_activities)) / \
-                    (Cost(P2, edges, visit_durations) -
-                     Cost(P, edges, visit_durations))
-                if poi_order != None and poi[0] == poi_order[0]["id"] and Cost(P2, edges, visit_durations) < budget:
-                    poi_order.pop(0)
-                    poi_found = True
-                    best_margin = margin
-                    P_star = list(P2)
-                elif margin > best_margin and Cost(P2, edges, visit_durations) < budget:
-                    best_margin = margin
-                    P_star = list(P2)
+        if (not (poi_order != None and len(poi_order) == 0)):
+            for poi in pois.items():
+                if poi not in P and not poi_found:
+                    P2 = list(P)
+                    P2.append(poi)
+                    if poi_order == None:
+                        P2 = TSP(list(P2), edges, essential_travel_methods)
+                        visit_durations = list(
+                            map(lambda p: p[1]["averageDuration"], P2[1:]))
+
+                    margin = (Utility(P2, preferred_activities, essential_activities) - Utility(P, preferred_activities, essential_activities)) / \
+                        (Cost(P2, edges, visit_durations, essential_travel_methods) -
+                         Cost(P, edges, visit_durations, essential_travel_methods))
+                    if poi_order != None and poi[0] == poi_order[0]["id"] and Cost(P2, edges, visit_durations, essential_travel_methods) < budget:
+                        poi_order.pop(0)
+                        poi_found = True
+                        best_margin = margin
+                        P_star = list(P2)
+                    elif poi_order == None and margin > best_margin and Cost(P2, edges, visit_durations, essential_travel_methods) < budget:
+                        best_margin = margin
+                        P_star = list(P2)
 
         if (P_star == None):
             break
@@ -191,18 +203,50 @@ def single_tour(pois, edges, budget, start_time, start_node, poi_order, preferre
     if (poi_order != None and len(P) <= expected_num_pois):
         raise NoResults(
             "Cannot fit all the activities within time window. Try removing an activity or increasing the time window.")
-    if visit_durations == None:
-        visit_durations = [2*60*60] * len(P)
 
     times = [start_time]
-    for p in range(0, len(P) - 1):
+    travel = []
+    for p in range(0, len(P)):
+
+        travel_time, travel_method = None, None
+        if p != len(P) - 1:
+            travel_time, travel_method, is_essential = get_travel_time_and_method(
+                edges, P[p][0], P[p + 1][0], essential_travel_methods)
+        P[p][1]["travelTimeToNext"] = travel_time
+        P[p][1]["travelMethodToNext"] = travel_method
+        P[p][1]["travelMethodChanged"] = True
+
         if p == 0:
-            times.append(times[p] + get_specific_edge(edges, P[p][0],
-                                                      P[p + 1][0]))
+            if p != len(P) - 1:
+                times.append(times[p] + travel_time)
         else:
-            times.append(times[p] + get_specific_edge(edges, P[p][0],
-                                                      P[p + 1][0]) + visit_durations[p - 1])
+            P[p][1]["duration"] = visit_durations[p - 1]
+            if p != len(P) - 1:
+                times.append(times[p] + travel_time + visit_durations[p - 1])
+
     return (P, times)
+
+
+def get_travel_time_and_method(edges, poi_1, poi_2, essential_travel_methods):
+
+    travel_time_all = get_specific_edge(edges, poi_1, poi_2)
+    travel_method = None
+    is_essential = False
+    for m in essential_travel_methods:
+        if m["id"] == poi_1:
+            travel_method = m["method"]
+            is_essential = True
+
+    if travel_method == None:
+        max_walking_time = 10 * 60
+        if travel_time_all["walk"] < max_walking_time:
+            travel_method = "walk"
+        else:
+            travel_method = "drive"
+
+    travel_time = travel_time_all[travel_method]
+
+    return travel_time, travel_method, is_essential
 
 
 def get_durations(pois, start_node):
@@ -213,15 +257,16 @@ def get_durations(pois, start_node):
     poi_ids = all_pois.keys()
     poi_ids_string = ", ".join('"{0}"'.format(p) for p in poi_ids)
     get_durations_query = db_manager.query("""
-    SELECT start_id, end_id, driving_time FROM travel_time WHERE start_id IN ({start_ids}) AND end_id IN ({end_ids})
+    SELECT start_id, end_id, driving_time, walking_time FROM travel_time WHERE start_id IN ({start_ids}) AND end_id IN ({end_ids})
     ORDER BY start_id, end_id
     """ .format(start_ids=poi_ids_string, end_ids=poi_ids_string))
     for p1 in all_pois.items():
         for p2 in all_pois.items():
             missing[(p1[0], p2[0])] = (p1[1], p2[1])
     for d in get_durations_query:
-        durations[(d[0], d[1])] = d[2]
-        del missing[(d[0], d[1])]
+        if d[2] != None and d[3] != None:
+            durations[(d[0], d[1])] = {"drive": d[2], "walk": d[3]}
+            del missing[(d[0], d[1])]
 
     if (len(missing) > 0):
         new_durations = get_missing_durations(missing.items())
@@ -273,68 +318,68 @@ def get_missing_durations(missing):
             new_durations_insert = get_new_durations_insert(new_durations)
             if (len(new_durations_insert) != 0):
                 insert_durations = db_manager.insert("""
-                REPLACE INTO travel_time (start_id, end_id, driving_time) VALUES {new_durations}
+                REPLACE INTO travel_time (start_id, end_id, driving_time, walking_time) VALUES {new_durations}
                 """ .format(new_durations=new_durations_insert))
             durations = merge_dicts(durations, new_durations)
     return durations
 
 
 def get_mapbox_durations(missing_coords, missing_subset_1, missing_subset_2, is_flipped):
-    mapbox_durations = mapbox.getMatrix(missing_coords, "driving", sources=list(range(0, len(
-        missing_subset_1))), destinations=list(range(len(missing_subset_1), len(missing_coords)))).json()["durations"]
+    mapbox_durations_driving = mapbox.getMatrix(missing_coords, "driving", sources=list(range(0, len(
+        missing_subset_1))), destinations=list(range(len(missing_subset_1), len(missing_coords))))
+    mapbox_durations_walking = mapbox.getMatrix(missing_coords, "walking", sources=list(range(0, len(
+        missing_subset_1))), destinations=list(range(len(missing_subset_1), len(missing_coords))))
+
     new_durations = {}
-    for i in range(0, len(mapbox_durations)):
-        for j in range(0, len(mapbox_durations[0])):
+    for i in range(0, len(mapbox_durations_driving)):
+        for j in range(0, len(mapbox_durations_driving[0])):
             a = i
             b = j
             if is_flipped:
-                a = len(mapbox_durations) - i - 1
-                b = len(mapbox_durations[i]) - j - 1
+                a = len(mapbox_durations_driving) - i - 1
+                b = len(mapbox_durations_driving[i]) - j - 1
             new_durations[(missing_subset_1[a][0],
-                           missing_subset_2[b][0])] = mapbox_durations[i][j]
+                           missing_subset_2[b][0])] = {"drive": mapbox_durations_driving[i][j], "walk": mapbox_durations_walking[i][j]}
     return new_durations
 
 
 def get_new_durations_insert(durations):
     s = ""
     for d in durations.items():
-        if (d[0][0] != "start" and d[0][1] != "start"):
-            s += "(\"" + str(d[0][0]) + "\",\"" + \
-                str(d[0][1]) + "\"," + str(d[1]) + ")" + ","
+        s += '("' + str(d[0][0]) + '","' + \
+            str(d[0][1]) + '",' + str(d[1]["drive"]) + \
+            ',' + str(d[1]["walk"]) + ")" + ","
     if s.endswith(","):
         s = s[:-1]
     return s
-
-
-def get_travel_time(l, start, end):
-    for t in l:
-        if (t[0] == start and t[1] == end):
-            return t
-    return None
 
 
 def get_specific_edge(edges, startId, endId):
     return edges[(startId, endId)]
 
 
-def Cost(path, edges, visit_durations):
-    totalTime = 0
-    for p in range(0, len(path) - 1):
-        travellingTime = get_specific_edge(edges, path[p][0],
-                                           path[p + 1][0])
-        if visit_durations == None:
-            visit_duration = 2 * 60 * 60
-        else:
-            visit_duration = visit_durations[p]
+def Cost(path, edges, visit_durations, essential_travel_methods):
+    total_time = 0
+    for p in range(0, len(path)):
 
-        totalTime += travellingTime + visit_duration
-    return totalTime
+        travel_time = 0
+
+        if p != len(path) - 1:
+            travel_time, _, _ = get_travel_time_and_method(edges, path[p][0],
+                                                           path[p + 1][0], essential_travel_methods)
+
+        visit_duration = 0
+        if p != 0:
+            visit_duration = visit_durations[p - 1]
+
+        total_time += travel_time + visit_duration
+    return total_time
 
 
 def Utility(path, preferred_activities, essential_activities):
     total = 0
     for p in path:
-        if p[0] != "start":
+        if "is_start" not in p[1]:
             additional_total = p[1]["score"] + \
                 p[1]["popularity"] * p[1]["rating"]
             if p[1]["categoryId"] in essential_activities:
@@ -345,22 +390,23 @@ def Utility(path, preferred_activities, essential_activities):
     return total
 
 
-def TSP(pois, edges):
+def TSP(pois, edges, essential_travel_methods):
     result = list([pois[0]])
     del pois[0]
+
     while len(pois) > 0:
-        relevantEdges = []
-        shortestEdgeEnd = pois[0][0]
+        relevant_edges = []
         for poi in pois:
-            relevantEdges.append(get_specific_edge(
-                edges, result[-1][0], poi[0]))
-        shortestEdge = relevantEdges[0]
-        del relevantEdges[0]
-        for relevantEdge in relevantEdges:
-            if relevantEdge < shortestEdge:
-                shortestEdge = relevantEdge
+            travel_time, travel_method, _ = get_travel_time_and_method(
+                edges, result[-1][0], poi[0], essential_travel_methods)
+            relevant_edges.append({"time": travel_time, "id": poi[0]})
+        shortest_edge = relevant_edges[0]
+        del relevant_edges[0]
+        for relevant_edge in relevant_edges:
+            if relevant_edge["time"] < shortest_edge["time"]:
+                shortest_edge = relevant_edge
         for i in range(0, len(pois)):
-            if (pois[i][0] == shortestEdgeEnd):
+            if (pois[i][0] == shortest_edge["id"]):
                 result.append(pois[i])
                 del pois[i]
                 break
@@ -374,7 +420,7 @@ def get_POIs_for_destination(destination, pref_scores):
     JOIN categories ON poi.foursquare_category_id = categories.id
     WHERE poi.destination_id={destination}
     ORDER BY poi.num_ratings DESC
-    LIMIT 60
+    LIMIT 100
     """ .format(destination=destination))
     pois = {}
     for poi in getPOIsQuery:
@@ -384,5 +430,5 @@ def get_POIs_for_destination(destination, pref_scores):
         for pref in pref_scores.keys():
             score += 5 - abs(pref_scores[pref] - poi_scores[pref])
         pois[poi[0]] = {"name": poi[1],
-                        "latitude": poi[2], "longitude": poi[3], "score": score, "popularity": poi[4] if poi[4] != None else 0, "rating": poi[5] if poi[5] != None else 0, "description": poi[6], "bestPhoto": poi[7], "categoryId": poi[8], "category": poi[9], "categoryIcon": poi[10]}
+                        "latitude": poi[2], "longitude": poi[3], "score": score, "averageDuration": 2 * 60 * 60, "popularity": poi[4] if poi[4] != None else 0, "rating": poi[5] if poi[5] != None else 0, "description": poi[6], "bestPhoto": poi[7], "categoryId": poi[8], "category": poi[9], "categoryIcon": poi[10]}
     return pois

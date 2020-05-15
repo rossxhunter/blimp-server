@@ -2,7 +2,7 @@ import wikipedia
 import re
 
 
-def getWikiDescription(name):
+def get_wiki_description(name):
     try:
         summary = wikipedia.summary(name, sentences=2)
     except:

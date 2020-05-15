@@ -27,25 +27,28 @@ def get_nearby_POIs(city, query):
 
 
 def get_POI_match(name, latitude, longitude, near):
+    categories = "4d4b7104d754a06370d81259,4d4b7105d754a06373d81259,4d4b7105d754a06376d81259,4d4b7105d754a06377d81259,4d4b7105d754a06375d81259,4d4b7105d754a06378d81259,52f2ab2ebcbc57f1066b8b4a"
     params = dict(
         client_id=client_id,
         client_secret=client_secret,
         v=v,
-        locale="en",
-        # intent="browse",
-        # radius=1000,
-        # ll=list_to_str_no_brackets([latitude, longitude]),
-        near=near,
+        # locale="en",
+        intent="checkin",
+        # radius=200,
+        ll=list_to_str_no_brackets([latitude, longitude]),
+        # near=near,
         # name=name,
+        categoryId=categories,
         # sortByPopularity=1,
         query=name,
+        # limit=1
         # address="210弄 Taikang Rd, Da Pu Qiao, Huangpu, China"
     )
-    resp = requests.get(url=base_url+'explore', params=params)
+    resp = requests.get(url=base_url+'search', params=params)
     data = json.loads(resp.text)
-    if "groups" not in data["response"]:
+    if "venues" not in data["response"]:
         return None
-    return data["response"]["groups"][0]["items"]
+    return data["response"]["venues"]
 
 
 def get_POI_details(id):

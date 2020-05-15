@@ -22,70 +22,118 @@ def fetch_suggestions(suggestion):
 
 
 def fetch_testing_suggestions():
-    dest_ids = [3530597, 3435910, 1273294, 745044, 1796236]
     dests_query = db_manager.query("""
-    SELECT id, name FROM destination 
-    WHERE id IN ({dest_ids})
-    """.format(dest_ids=list_to_str_no_brackets(dest_ids)))
+    SELECT destination.id, destination.name 
+    FROM external_itinerary
+    JOIN destination ON destination.id = external_itinerary.destination_id
+    GROUP BY destination.id, destination.name
+    """)
     dests = []
     for d in dests_query:
         dests.append({"id": d[0], "name": d[1]})
     return jsonify(dests)
 
 
+def get_explore_dests(page, origin_id, departure_date, return_date):
+    if (page == "For You"):
+        dests_query = db_manager.query("""
+        SELECT destination.id, destination.name, destination.country_code, country.Country
+        FROM destination
+        JOIN country ON country.ISO = destination.country_code
+        JOIN flyable_destination ON flyable_destination.destination = destination.id
+        WHERE tourist_score IS NOT NULL AND flyable_destination.origin = {origin_id} AND flyable_destination.departure_date = "{departure_date}" AND flyable_destination.return_date = "{return_date}"
+        ORDER BY destination.tourist_score DESC
+        LIMIT 100
+        """.format(origin_id=origin_id, departure_date=departure_date, return_date=return_date))
+    elif (page == "Popular"):
+        dests_query = db_manager.query("""
+        SELECT destination.id, destination.name, destination.country_code, country.Country
+        FROM destination
+        JOIN country ON country.ISO = destination.country_code
+        JOIN flyable_destination ON flyable_destination.destination = destination.id
+        WHERE tourist_score IS NOT NULL AND flyable_destination.origin = {origin_id} AND flyable_destination.departure_date = "{departure_date}" AND flyable_destination.return_date = "{return_date}"
+        ORDER BY destination.tourist_score DESC
+        LIMIT 20
+        """.format(origin_id=origin_id, departure_date=departure_date, return_date=return_date))
+    elif (page == "Europe"):
+        dests_query = db_manager.query("""
+        SELECT destination.id, destination.name, destination.country_code, country.Country
+        FROM destination
+        JOIN country ON country.ISO = destination.country_code
+        JOIN flyable_destination ON flyable_destination.destination = destination.id
+        WHERE tourist_score IS NOT NULL AND Continent = "EU" AND flyable_destination.origin = {origin_id} AND flyable_destination.departure_date = "{departure_date}" AND flyable_destination.return_date = "{return_date}"
+        ORDER BY destination.tourist_score DESC
+        LIMIT 20
+        """.format(origin_id=origin_id, departure_date=departure_date, return_date=return_date))
+    elif (page == "Asia"):
+        dests_query = db_manager.query("""
+        SELECT destination.id, destination.name, destination.country_code, country.Country
+        FROM destination
+        JOIN country ON country.ISO = destination.country_code
+        JOIN flyable_destination ON flyable_destination.destination = destination.id
+        WHERE tourist_score IS NOT NULL AND Continent = "AS" AND flyable_destination.origin = {origin_id} AND flyable_destination.departure_date = "{departure_date}" AND flyable_destination.return_date = "{return_date}"
+        ORDER BY destination.tourist_score DESC
+        LIMIT 20
+        """.format(origin_id=origin_id, departure_date=departure_date, return_date=return_date))
+    elif (page == "Americas"):
+        dests_query = db_manager.query("""
+        SELECT destination.id, destination.name, destination.country_code, country.Country
+        FROM destination
+        JOIN country ON country.ISO = destination.country_code
+        JOIN flyable_destination ON flyable_destination.destination = destination.id
+        WHERE tourist_score IS NOT NULL AND (Continent = "SA" OR Continent = "NA") AND flyable_destination.origin = {origin_id} AND flyable_destination.departure_date = "{departure_date}" AND flyable_destination.return_date = "{return_date}"
+        ORDER BY destination.tourist_score DESC
+        LIMIT 20
+        """.format(origin_id=origin_id, departure_date=departure_date, return_date=return_date))
+    return list(dests_query)
+
+
 def fetch_explore_suggestions():
-    dests_query = db_manager.query("""
-    SELECT destination.id, destination.name, destination.country_code, country.Country
-    FROM destination
-    JOIN country ON country.ISO = destination.country_code
-    WHERE tourist_score IS NOT NULL
-    ORDER BY destination.tourist_score DESC
-    LIMIT 20
-    """)
-    dests = list(dests_query)
-    # dests = get_present_dest_images(dests)
-    random.shuffle(dests)
-    suggestions = []
-    dests = dests[:10]
-    dest_images = {}
-    for dest in dests:
-        images_query = db_manager.query("""
-        SELECT url FROM destination_photo
-        WHERE dest_id = {dest_id}
-        """.format(dest_id=dest[0]))
-        dest_images[dest[0]] = images_query[0][0]
-    top_attractions_query = db_manager.query("""
-    SELECT ranked.id, ranked.name
-    FROM
-        (SELECT dests.id, poi.name, RANK() OVER (PARTITION BY dests.id ORDER BY poi.num_ratings DESC) AS rnk
+    pages = ["For You", "Popular", "Europe", "Asia", "Americas"]
+    all_suggestions = {}
+    for page in pages:
+        origin_id = 2643743
+        departure_date = "2020-08-27"
+        return_date = "2020-08-30"
+        dests = get_explore_dests(page, origin_id, departure_date, return_date)
+        random.shuffle(dests)
+        suggestions = []
+        dests = dests[:10]
+        dest_images = {}
+        valid_dests = []
+        for dest in dests:
+            images_query = db_manager.query("""
+            SELECT url FROM destination_photo
+            WHERE dest_id = {dest_id}
+            """.format(dest_id=dest[0]))
+            if len(images_query) != 0:
+                valid_dests.append(dest)
+                dest_images[dest[0]] = images_query[0][0]
+        top_attractions_query = db_manager.query("""
+        SELECT ranked.id, ranked.name
         FROM
-            (SELECT id, name, country_code
-            FROM destination
-            WHERE id IN ({dest_ids})) as dests
-        JOIN poi ON poi.destination_id = dests.id) as ranked
-    WHERE rnk <= 10
-    """.format(dest_ids=list_to_str_no_brackets(list(map(lambda x: x[0], dests)))))
-    attractions = {}
-    for att in top_attractions_query:
-        if att[0] in attractions:
-            attractions[att[0]].append(att[1])
-        else:
-            attractions[att[0]] = [att[1]]
-    for d in dests:
-        selected_attractions = attractions[d[0]]
-        random.shuffle(selected_attractions)
-        selected_attractions = selected_attractions[:3]
-        suggestions.append(
-            {"id": d[0], "name": d[1], "country_code": d[2].lower(), "country_name": d[3], "image": dest_images[d[0]], "top_attractions": selected_attractions})
-    return jsonify(suggestions)
-
-
-def get_present_dest_images(dests):
-    present = []
-    for dest in dests:
-        if os.path.isdir("assets/images/destinations/" + str(dest[0])):
-            present.append(dest)
-    return present
+            (SELECT dests.id, poi.name, RANK() OVER (PARTITION BY dests.id ORDER BY poi.num_ratings DESC) AS rnk
+            FROM
+                (SELECT id, name, country_code
+                FROM destination
+                WHERE id IN ({dest_ids})) as dests
+            JOIN poi ON poi.destination_id = dests.id) as ranked
+        WHERE rnk <= 10
+        """.format(dest_ids=list_to_str_no_brackets(list(map(lambda x: x[0], valid_dests)))))
+        attractions = {}
+        for att in top_attractions_query:
+            if att[0] in attractions:
+                attractions[att[0]].append(att[1])
+            else:
+                attractions[att[0]] = [att[1]]
+        for d in valid_dests:
+            selected_attractions = attractions[d[0]]
+            random.shuffle(selected_attractions)
+            selected_attractions = selected_attractions[:3]
+            suggestions.append(
+                {"id": d[0], "name": d[1], "country_code": d[2].lower(), "country_name": d[3], "image": dest_images[d[0]], "top_attractions": selected_attractions})
+        all_suggestions[page] = suggestions
+    return jsonify(all_suggestions)
 
 
 def fetch_currency_suggestions():
