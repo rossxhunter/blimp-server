@@ -1,4 +1,9 @@
 from config import db_manager
+import math
+
+
+def round_to_nearest(x, base):
+    return base * math.ceil(x/base)
 
 
 def divide_round_up(n, d):

@@ -5,6 +5,7 @@ from apis import google_places
 import random
 import os
 from util.db_populate import populate_DB
+from datetime import datetime
 
 
 def fetch_suggestions(suggestion):
@@ -34,57 +35,53 @@ def fetch_testing_suggestions():
     return jsonify(dests)
 
 
-def get_explore_dests(page, origin_id, departure_date, return_date):
+def get_explore_dests(page, origin_id):
+    all_dests_query_start = """
+    SELECT destination.id, destination.name, destination.country_code, country.Country, flyable_destination.departure_date, flyable_destination.return_date, MIN(flyable_destination.price_amount)
+    FROM destination
+    JOIN country ON country.ISO = destination.country_code
+    JOIN flyable_destination ON flyable_destination.destination = destination.id
+    """
+    all_dests_query_extra = """
+    GROUP BY flyable_destination.destination, flyable_destination.departure_date, flyable_destination.return_date
+    ORDER BY destination.tourist_score DESC
+    """
     if (page == "For You"):
-        dests_query = db_manager.query("""
-        SELECT destination.id, destination.name, destination.country_code, country.Country
-        FROM destination
-        JOIN country ON country.ISO = destination.country_code
-        JOIN flyable_destination ON flyable_destination.destination = destination.id
-        WHERE tourist_score IS NOT NULL AND flyable_destination.origin = {origin_id} AND flyable_destination.departure_date = "{departure_date}" AND flyable_destination.return_date = "{return_date}"
-        ORDER BY destination.tourist_score DESC
-        LIMIT 100
-        """.format(origin_id=origin_id, departure_date=departure_date, return_date=return_date))
+        dests_query = db_manager.query(
+            all_dests_query_start +
+            """
+            WHERE tourist_score IS NOT NULL AND flyable_destination.origin = {origin_id}
+            """.format(origin_id=origin_id)
+            + all_dests_query_extra
+        )
     elif (page == "Popular"):
-        dests_query = db_manager.query("""
-        SELECT destination.id, destination.name, destination.country_code, country.Country
-        FROM destination
-        JOIN country ON country.ISO = destination.country_code
-        JOIN flyable_destination ON flyable_destination.destination = destination.id
-        WHERE tourist_score IS NOT NULL AND flyable_destination.origin = {origin_id} AND flyable_destination.departure_date = "{departure_date}" AND flyable_destination.return_date = "{return_date}"
-        ORDER BY destination.tourist_score DESC
-        LIMIT 20
-        """.format(origin_id=origin_id, departure_date=departure_date, return_date=return_date))
+        dests_query = db_manager.query(
+            all_dests_query_start +
+            """
+            WHERE tourist_score IS NOT NULL AND flyable_destination.origin = {origin_id}
+            """.format(origin_id=origin_id) + all_dests_query_extra
+        )
     elif (page == "Europe"):
-        dests_query = db_manager.query("""
-        SELECT destination.id, destination.name, destination.country_code, country.Country
-        FROM destination
-        JOIN country ON country.ISO = destination.country_code
-        JOIN flyable_destination ON flyable_destination.destination = destination.id
-        WHERE tourist_score IS NOT NULL AND Continent = "EU" AND flyable_destination.origin = {origin_id} AND flyable_destination.departure_date = "{departure_date}" AND flyable_destination.return_date = "{return_date}"
-        ORDER BY destination.tourist_score DESC
-        LIMIT 20
-        """.format(origin_id=origin_id, departure_date=departure_date, return_date=return_date))
+        dests_query = db_manager.query(
+            all_dests_query_start +
+            """
+            WHERE tourist_score IS NOT NULL AND Continent = "EU" AND flyable_destination.origin = {origin_id}
+            """.format(origin_id=origin_id) + all_dests_query_extra
+        )
     elif (page == "Asia"):
-        dests_query = db_manager.query("""
-        SELECT destination.id, destination.name, destination.country_code, country.Country
-        FROM destination
-        JOIN country ON country.ISO = destination.country_code
-        JOIN flyable_destination ON flyable_destination.destination = destination.id
-        WHERE tourist_score IS NOT NULL AND Continent = "AS" AND flyable_destination.origin = {origin_id} AND flyable_destination.departure_date = "{departure_date}" AND flyable_destination.return_date = "{return_date}"
-        ORDER BY destination.tourist_score DESC
-        LIMIT 20
-        """.format(origin_id=origin_id, departure_date=departure_date, return_date=return_date))
+        dests_query = db_manager.query(
+            all_dests_query_start +
+            """
+            WHERE tourist_score IS NOT NULL AND Continent = "AS" AND flyable_destination.origin = {origin_id}
+            """.format(origin_id=origin_id) + all_dests_query_extra
+        )
     elif (page == "Americas"):
-        dests_query = db_manager.query("""
-        SELECT destination.id, destination.name, destination.country_code, country.Country
-        FROM destination
-        JOIN country ON country.ISO = destination.country_code
-        JOIN flyable_destination ON flyable_destination.destination = destination.id
-        WHERE tourist_score IS NOT NULL AND (Continent = "SA" OR Continent = "NA") AND flyable_destination.origin = {origin_id} AND flyable_destination.departure_date = "{departure_date}" AND flyable_destination.return_date = "{return_date}"
-        ORDER BY destination.tourist_score DESC
-        LIMIT 20
-        """.format(origin_id=origin_id, departure_date=departure_date, return_date=return_date))
+        dests_query = db_manager.query(
+            all_dests_query_start +
+            """
+            WHERE tourist_score IS NOT NULL AND (Continent = "SA" OR Continent = "NA") AND flyable_destination.origin = {origin_id}
+            """.format(origin_id=origin_id) + all_dests_query_extra
+        )
     return list(dests_query)
 
 
@@ -93,12 +90,18 @@ def fetch_explore_suggestions():
     all_suggestions = {}
     for page in pages:
         origin_id = 2643743
-        departure_date = "2020-08-27"
-        return_date = "2020-08-30"
-        dests = get_explore_dests(page, origin_id, departure_date, return_date)
+        dests = get_explore_dests(page, origin_id)
+        dest_map = {}
+        for dest in dests:
+            dest_map[dest[0]] = dest
+        dests = list(dest_map.values())
+        if page == "For You":
+            dests = dests[:100]
+        else:
+            dests = dests[:20]
         random.shuffle(dests)
-        suggestions = []
         dests = dests[:10]
+        suggestions = []
         dest_images = {}
         valid_dests = []
         for dest in dests:
@@ -131,7 +134,7 @@ def fetch_explore_suggestions():
             random.shuffle(selected_attractions)
             selected_attractions = selected_attractions[:3]
             suggestions.append(
-                {"id": d[0], "name": d[1], "country_code": d[2].lower(), "country_name": d[3], "image": dest_images[d[0]], "top_attractions": selected_attractions})
+                {"id": d[0], "name": d[1], "country_code": d[2].lower(), "country_name": d[3], "departure_date": datetime.strftime(d[4], "%Y-%m-%d"), "return_date": datetime.strftime(d[5], "%Y-%m-%d"), "image": dest_images[d[0]], "top_attractions": selected_attractions})
         all_suggestions[page] = suggestions
     return jsonify(all_suggestions)
 

@@ -1,6 +1,6 @@
 from config import db_manager
 from apis import foursquare, wikipedia, google_places, pixabay, facebook_places, wmo, geonames
-from core import flights, accommodation
+from core import flights, accommodation, itinerary
 import urllib
 import shutil
 import os
@@ -20,6 +20,7 @@ def populate_DB():
     # fetch_POI_image_urls()
     # populate_foursquare_POI_details()
     # populate_facebook_POI_details()
+    # populate_travel_times()
 
     # ADD DEST DETAILS
     # calculate_tourist_scores()
@@ -38,6 +39,18 @@ def populate_DB():
 
     # OLD calculate_destination_scores()
     return
+
+
+def populate_travel_times():
+    dests_query = db_manager.query("""
+    SELECT id, latitude, longitude FROM destination 
+    WHERE tourist_score IS NOT NULL
+    """)
+    for dest in dests_query:
+        start_node = (str(dest[0]), {"is_start": True,
+                                     "latitude": dest[1], "longitude": dest[2], "score": 0, "popularity": 0, "rating": 0})
+        pois = itinerary.get_POIs_for_destination(dest[0], {})
+        itinerary.get_durations(pois, start_node)
 
 
 def fetch_hotel_image_urls():
@@ -66,8 +79,8 @@ def populate_hotel_details():
         db_manager.insert("""
         UPDATE hotel SET is_correct = {is_correct}, rating = {rating}
         WHERE id = "{hotel_id}"
-        """.format(is_correct=is_correct, hotel_id=hotel[0], rating=hotel_details["rating"]))
-        if is_correct:
+        """.format(is_correct=is_correct, hotel_id=hotel[0], rating=hotel_details["rating"] if "rating" in hotel_details else '"NULL"'))
+        if is_correct and "photos" in hotel_details:
             for photo in hotel_details["photos"]:
                 db_manager.insert("""
                 INSERT INTO hotel_photo (reference, hotel_id, height, width)
@@ -77,27 +90,32 @@ def populate_hotel_details():
 
 def populate_hotels():
     dests_query = db_manager.query("""
-    SELECT city_code FROM destination
+    SELECT id, city_code FROM destination
     WHERE tourist_score IS NOT NULL
     ORDER BY tourist_score DESC
-    LIMIT 1
+    LIMIT 10
     """)
     check_in_date = "2020-08-27"
     check_out_date = "2020-08-30"
     for dest in dests_query:
-        acc_options = accommodation.get_accommodation_options(
-            dest[0], check_in_date, check_out_date, {"adults": 2}, "hotel", 3, [], "GBP")
-        for acc in acc_options:
-            exists = db_manager.query("""
-            SELECT id FROM hotel WHERE id = "{hotel_id}"
-            """.format(hotel_id=acc["hotelId"]))
-            if len(exists) == 0:
-                google_id = google_places.get_hotel_id(
-                    acc["name"], acc["latitude"], acc["longitude"])
-                db_manager.insert("""
-                INSERT INTO hotel (id, provider, google_id, name)
-                VALUES ("{hotel_id}", "amadeus", "{google_id}", "{hotel_name}")
-                """.format(hotel_id=acc["hotelId"], google_id=google_id, hotel_name=acc["name"]))
+        hotels_already_added_query = db_manager.query("""
+        SELECT id FROM hotel WHERE destination_id = {destination_id}
+        """.format(destination_id=dest[0]))
+        if len(hotels_already_added_query) == 0:
+            acc_options = accommodation.get_accommodation_options(
+                dest[1], check_in_date, check_out_date, {"adults": 2}, "hotel", 3, [], "GBP")
+            for acc in acc_options:
+                exists = db_manager.query("""
+                SELECT id FROM hotel WHERE id = "{hotel_id}"
+                """.format(hotel_id=acc["hotelId"]))
+                if len(exists) == 0:
+                    google_id = google_places.get_hotel_id(
+                        acc["name"], acc["latitude"], acc["longitude"])
+                    if google_id != None:
+                        db_manager.insert("""
+                        INSERT INTO hotel (id, provider, destination_id, google_id, name)
+                        VALUES ("{hotel_id}", "amadeus", {destination_id}, "{google_id}", "{hotel_name}")
+                        """.format(hotel_id=acc["hotelId"], destination_id=dest[0], google_id=google_id, hotel_name=acc["name"]))
 
 
 def populate_flyable_dests():
@@ -107,12 +125,6 @@ def populate_flyable_dests():
     return_date = "2020-08-30"
     available_flights = flights.get_all_return_flights(
         origin, departure_date, return_date)
-    for flight in available_flights.items():
-        db_manager.insert("""
-        REPLACE INTO flyable_destination (origin, destination, departure_date, return_date, name, price_amount, price_currency)
-        VALUES ({origin}, {destination}, "{departure_date}",
-                "{return_date}", "{name}", {price_amount}, "{price_currency}")
-        """.format(origin=origin_id, destination=flight[0], departure_date=departure_date, return_date=return_date, name=flight[1]["name"], price_amount=flight[1]["price"]["amount"], price_currency=flight[1]["price"]["currency"]))
 
 
 def populate_dest_wiki():

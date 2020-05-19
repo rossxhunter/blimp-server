@@ -108,6 +108,8 @@ def select_dest_from_ranked_dests(dests, ranked_dests, constraints, feedback):
         else:
             accommodation_options = accommodation.get_accommodation_options(dest_code_query, constraints["departure_date"], constraints["return_date"], constraints["travellers"],
                                                                             constraints["accommodation_type"], constraints["accommodation_stars"], constraints["accommodation_amenities"], constraints["budget_currency"])
+            if len(accommodation_options) == 0:
+                raise NoResults("No accommodation options")
             if destination_satisfies_budget(flight_options[0]["price"], dest_id, constraints, accommodation_options, constraints["budget_leq"]):
                 if destination_satisfies_feedback(dest_id, flight_options, accommodation_options, ranked_dests, constraints, feedback):
                     dest_query = db_manager.query("""
@@ -140,7 +142,11 @@ def destination_satisfies_feedback(dest_id, flight_options, accommodation_option
         travel_duration = flight_options[0]["outbound"]["duration"]
         return travel_duration < previous_travel_duration
     if feedback["type"] == "better_weather":
-        return True
+        previous_av_temp = feedback["previous_av_temp"]
+        month = datetime.strptime(
+            constraints["departure_date"], "%Y-%m-%d").month
+        av_temp_c, num_days_rainfall = get_dest_weather(dest_id, month)
+        return av_temp_c > previous_av_temp
     if feedback["type"] == "more_activity":
         n = get_preferred_activities_similarity(
             dest_id, [feedback["activity_id"]], 1)

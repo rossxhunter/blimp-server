@@ -30,6 +30,8 @@ def get_hotel_id(name, lat, lng):
             lat=lat, lng=lng),
         language="en",
     )
+    if len(result["candidates"]) == 0:
+        return None
     return result["candidates"][0]["place_id"]
 
 

@@ -2,7 +2,7 @@ from amadeus import Client, ResponseError, Location
 import json
 from config import db_manager
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from util.util import list_to_str_no_brackets
 from apis import exchange_rates
 from util.exceptions import NoResults
@@ -52,11 +52,13 @@ def get_all_one_way_flights(origin, departure_date):
 def get_all_return_flights(origin, departure_date, return_date):
 
     dep_date_dt = datetime.strptime(departure_date, '%Y-%m-%d')
+    dep_date_dt_plus_1 = dep_date_dt + timedelta(days=1)
+    dep_date_plus_1_str = datetime.strftime(dep_date_dt_plus_1, '%Y-%m-%d')
     ret_date_dt = datetime.strptime(return_date, '%Y-%m-%d')
     duration = (ret_date_dt - dep_date_dt).days
 
     flights = amadeus.shopping.flight_destinations.get(
-        origin=origin, departureDate=departure_date, duration=duration).result
+        origin=origin, departureDate=departure_date, duration=duration, nonStop="true").result
     # f = open("flights_data.txt", "w")
     # f.write(json.dumps(flights))
     # f.close()

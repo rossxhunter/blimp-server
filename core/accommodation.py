@@ -33,7 +33,8 @@ def get_accommodation_options(dest, check_in_date, check_out_date, travellers, a
             if "rating" in acc["hotel"] and int(acc["hotel"]["rating"]) >= accommodation_stars:
                 conversion = get_exchange_rate_for_accommodation(
                     acc["offers"][0]["price"]["currency"], currency, rates)
-
+                if conversion == None:
+                    return []
                 details = get_accommodation_details(acc, currency, conversion)
                 details["id"] = i
                 details["nights"] = nights

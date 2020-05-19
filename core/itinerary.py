@@ -2,12 +2,13 @@ import apis.mapbox as mapbox
 from flask.json import jsonify
 from config import db_manager
 from datetime import datetime, timedelta
-from util.util import divide_round_up, merge_dicts
+from util.util import divide_round_up, merge_dicts, round_to_nearest
 import apis.amadeus as amadeus
 from util.exceptions import NoResults
+import time
 
 
-def calculate_itinerary_for_evaluation(dest_id, num_days, poi_order=None, day=None, window=[8, 17], essential_travel_methods=[]):
+def calculate_itinerary_for_evaluation(dest_id, num_days, poi_order=None, day=None, window=[8, 18], essential_travel_methods=[]):
     pois = get_POIs_for_destination(dest_id, {})
     start_location = db_manager.query("""
     SELECT id, latitude, longitude FROM destination WHERE id = {dest_id}
@@ -84,7 +85,7 @@ def get_daily_time_budgets_and_start_times(travel, window):
         travel["outbound"]["arrival"]["date"], "%Y%m%d")
     departure_date = datetime.strptime(
         travel["return"]["departure"]["date"], "%Y%m%d")
-    stay_duration = departure_date.day - arrival_date.day + 1
+    stay_duration = (departure_date - arrival_date).days + 1
     start_time = window[0] * 60 * 60
     end_time = window[1] * 60 * 60
     for i in range(0, stay_duration):
@@ -218,11 +219,12 @@ def single_tour(pois, edges, budget, start_time, start_node, poi_order, essentia
 
         if p == 0:
             if p != len(P) - 1:
-                times.append(times[p] + travel_time)
+                times.append(round_to_nearest(times[p] + travel_time, 5 * 60))
         else:
             P[p][1]["duration"] = visit_durations[p - 1]
             if p != len(P) - 1:
-                times.append(times[p] + travel_time + visit_durations[p - 1])
+                times.append(round_to_nearest(
+                    times[p] + travel_time + visit_durations[p - 1], 5 * 60))
 
     return (P, times)
 
@@ -339,7 +341,7 @@ def get_mapbox_durations(missing_coords, missing_subset_1, missing_subset_2, is_
                 a = len(mapbox_durations_driving) - i - 1
                 b = len(mapbox_durations_driving[i]) - j - 1
             new_durations[(missing_subset_1[a][0],
-                           missing_subset_2[b][0])] = {"drive": mapbox_durations_driving[i][j], "walk": mapbox_durations_walking[i][j]}
+                           missing_subset_2[b][0])] = {"drive": mapbox_durations_driving[i][j], "walk": mapbox_durations_walking[i][j] or mapbox_durations_driving[i][j] * 7.5}
     return new_durations
 
 
@@ -372,7 +374,9 @@ def Cost(path, edges, visit_durations, essential_travel_methods):
         if p != 0:
             visit_duration = visit_durations[p - 1]
 
-        total_time += travel_time + visit_duration
+        additional_time = round_to_nearest(
+            travel_time + visit_duration, 5 * 60)
+        total_time += additional_time
     return total_time
 
 
@@ -415,7 +419,7 @@ def TSP(pois, edges, essential_travel_methods):
 
 def get_POIs_for_destination(destination, pref_scores):
     getPOIsQuery = db_manager.query("""
-    SELECT poi.id,poi.name,poi.latitude,poi.longitude,poi.num_ratings,poi.rating,poi.wiki_description,poi_photo.url,categories.id,categories.name,categories.icon_prefix,categories.culture_score,categories.learn_score,categories.relax_score FROM poi
+    SELECT poi.id,poi.name,poi.latitude,poi.longitude,poi.num_ratings,poi.rating,poi.wiki_description,poi_photo.url,categories.id,categories.name,categories.icon_prefix,categories.average_time_spent_minutes,categories.culture_score,categories.learn_score,categories.action_score,categories.party_score,categories.sport_score,categories.food_score,categories.relax_score,categories.nature_score,categories.shopping_score,categories.romantic_score,categories.family_score FROM poi
     JOIN poi_photo ON poi_photo.poi_id = poi.id
     JOIN categories ON poi.foursquare_category_id = categories.id
     WHERE poi.destination_id={destination}
@@ -425,10 +429,11 @@ def get_POIs_for_destination(destination, pref_scores):
     pois = {}
     for poi in getPOIsQuery:
         score = 1
-        poi_scores = {"culture": poi[11] or 3,
-                      "learn": poi[12] or 3, "relax": poi[13] or 3}
+        duration = poi[11] or (1 * 60)
+        poi_scores = {"culture": poi[12] or 3,
+                      "learn": poi[13] or 3, "action": poi[14] or 3, "party": poi[15] or 3, "sport": poi[16] or 3, "food": poi[17] or 3, "relax": poi[18] or 3, "nature": poi[19] or 3, "shopping": poi[20] or 3, "romantic": poi[21] or 3, "family": poi[22] or 3}
         for pref in pref_scores.keys():
-            score += 5 - abs(pref_scores[pref] - poi_scores[pref])
+            score += 5 - abs(pref_scores[pref] or 3 - poi_scores[pref])
         pois[poi[0]] = {"name": poi[1],
-                        "latitude": poi[2], "longitude": poi[3], "score": score, "averageDuration": 2 * 60 * 60, "popularity": poi[4] if poi[4] != None else 0, "rating": poi[5] if poi[5] != None else 0, "description": poi[6], "bestPhoto": poi[7], "categoryId": poi[8], "category": poi[9], "categoryIcon": poi[10]}
+                        "latitude": poi[2], "longitude": poi[3], "score": score, "averageDuration": duration * 60, "popularity": poi[4] if poi[4] != None else 0, "rating": poi[5] if poi[5] != None else 0, "description": poi[6], "bestPhoto": poi[7], "categoryId": poi[8], "category": poi[9], "categoryIcon": poi[10]}
     return pois

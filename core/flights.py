@@ -14,27 +14,38 @@ def get_all_return_flights(origin, departure_date, return_date):
     ORDER BY population DESC LIMIT 1
     """.format(origin=origin))[0][0]
 
+    # cache_query = db_manager.query("""
+    # SELECT destination, name, departure_date, return_date, price_amount, price_currency FROM flyable_destination
+    # WHERE origin = {origin_id} AND departure_date = "{departure_date}" AND return_date = "{return_date}"
+    # """.format(origin_id=origin_id, departure_date=departure_date, return_date=return_date))
+
     cache_query = db_manager.query("""
-    SELECT destination, name, price_amount, price_currency FROM flyable_destination
-    WHERE origin = {origin_id} AND departure_date = "{departure_date}" AND return_date = "{return_date}" 
+    SELECT result FROM flyable_destination_result
+    WHERE origin = {origin_id} AND departure_date = "{departure_date}" AND return_date = "{return_date}"
     """.format(origin_id=origin_id, departure_date=departure_date, return_date=return_date))
 
     parsed_flights = {}
 
-    for d in cache_query:
-        parsed_flights[d[0]] = {"name": d[1], "price": {
-            "amount": d[2], "currency": d[3]}}
+    # for d in cache_query:
+    #     parsed_flights[d[0]] = {"name": d[1], "departureDate": d[2], "returnDate": d[3], "price": {
+    #         "amount": d[4], "currency": d[5]}}
 
-    if len(cache_query) == 0:
+    if len(cache_query) != 0:
+        parsed_flights = eval(cache_query[0][0])
+    else:
         flights = amadeus.get_all_return_flights(
             origin, departure_date, return_date)
         parsed_flights = parse_flights(flights)
-        for flight in parsed_flights.items():
-            db_manager.insert("""
-            REPLACE INTO flyable_destination (origin, destination, departure_date, return_date, name, price_amount, price_currency)
-            VALUES ({origin_id}, {destination}, "{departure_date}",
-                    "{return_date}", "{name}", {price_amount}, "{price_currency}")
-            """.format(origin_id=origin_id, destination=flight[0], departure_date=departure_date, return_date=return_date, name=flight[1]["name"], price_amount=flight[1]["price"]["amount"], price_currency=flight[1]["price"]["currency"]))
+        # for flight in parsed_flights.items():
+        # db_manager.insert("""
+        # REPLACE INTO flyable_destination (origin, destination, departure_date, return_date, name, price_amount, price_currency)
+        # VALUES ({origin_id}, {destination}, "{departure_date}",
+        #         "{return_date}", "{name}", {price_amount}, "{price_currency}")
+        # """.format(origin_id=origin_id, destination=flight[0], departure_date=flight[1]["departureDate"], return_date=flight[1]["returnDate"], name=flight[1]["name"], price_amount=flight[1]["price"]["amount"], price_currency=flight[1]["price"]["currency"]))
+        db_manager.insert("""
+        REPLACE INTO flyable_destination_result (origin, departure_date, return_date, result)
+        VALUES ({origin_id}, "{departure_date}", "{return_date}", "{result}")
+        """.format(origin_id=origin_id, departure_date=departure_date, return_date=return_date, result=parsed_flights))
 
     return parsed_flights
 
@@ -77,7 +88,8 @@ def get_direct_flights_from_origin_to_desintaion(origin, dest, departure_date, r
 
         db_manager.insert("""
         REPLACE INTO flights_result (origin, destination, departure_date, return_date, travellers, currency, result, timestamp)
-        VALUES ("{origin}", "{destination}", "{departure_date}", "{return_date}", "{travellers}", "{currency}", "{result}", "{timestamp}")
+        VALUES ("{origin}", "{destination}", "{departure_date}", "{return_date}",
+                "{travellers}", "{currency}", "{result}", "{timestamp}")
         """.format(origin=origin, destination=dest, departure_date=departure_date, return_date=return_date, travellers=str(travellers), currency=currency, result=str(flights_details), timestamp=timestamp))
 
     return flights_details
@@ -196,7 +208,9 @@ def parse_flights(flights):
                 dest_id = dest[1]
                 dest_name = dest[2]
                 amount = flights_data[c[1][dest[0]]]["price"]["total"]
-                results[dest_id] = {"name": dest_name, "price": {
+                departure_date = flights_data[c[1][dest[0]]]["departureDate"]
+                return_date = flights_data[c[1][dest[0]]]["returnDate"]
+                results[dest_id] = {"name": dest_name, "departureDate": departure_date, "returnDate": return_date, "price": {
                     "currency": currency, "amount": amount}}
             else:
                 print("NOT FOUND: " + dest[0])
