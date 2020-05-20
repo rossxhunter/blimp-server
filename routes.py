@@ -39,6 +39,21 @@ def get_holiday_from_feedback():
     return holiday.get_holiday(constraints, soft_prefs, pref_scores, feedback)
 
 
+@application.route('/itinerary_from_change', methods=['GET'])
+def get_itinerary_from_change():
+    destination_id = json.loads(request.args.get('destination_id'))
+    constraints = json.loads(request.args.get('constraints'))
+    soft_prefs = json.loads(request.args.get('softprefs'))
+    pref_scores = json.loads(request.args.get('pref_scores'))
+    travel = json.loads(request.args.get('travel'))
+    accommodation = json.loads(request.args.get('accommodation'))
+
+    pois = get_POIs_for_destination(destination_id, pref_scores)
+
+    return itinerary.calculate_itinerary(
+        dict(pois), travel, accommodation, constraints, soft_prefs, pref_scores)
+
+
 @application.route('/itinerary', methods=['GET'])
 def get_itinerary():
     activities = json.loads(request.args.get('activities'))

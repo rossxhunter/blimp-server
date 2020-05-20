@@ -6,6 +6,7 @@ from util.exceptions import NoResults
 from core import accommodation, flights
 from core.flights import parse_duration
 from datetime import datetime
+import random
 
 NUM_DEST_ATTEMPTS = 3
 
@@ -97,6 +98,8 @@ def select_dest_from_ranked_dests(dests, ranked_dests, constraints, feedback):
     num_low_budget = 0
     if feedback != None:
         ranked_dests.remove(feedback["previous_dest_id"])
+    ranked_dests = ranked_dests[:10]
+    random.shuffle(ranked_dests)
     for dest_id in ranked_dests[:NUM_DEST_ATTEMPTS]:
         dest_code_query = db_manager.query("""
         SELECT city_code FROM destination WHERE id={dest_id}
@@ -195,7 +198,15 @@ def dests_from_constraints_recommender(constraints):
         raise NoResults(
             'No flights available on these dates')
     # TODO: Perform constraint based stuff on dests here
-    return dests
+    have_dest_query = db_manager.query("""
+    SELECT id FROM destination WHERE tourist_score IS NOT NULL
+    """)
+    all_dest_ids = list(map(lambda d: d[0], have_dest_query))
+    valid_dests = {}
+    for dest in dests.items():
+        if dest[0] in all_dest_ids:
+            valid_dests[dest[0]] = dest[1]
+    return valid_dests
 
 
 def get_flyable_dests(constraints):
