@@ -48,7 +48,7 @@ def get_itinerary_from_change():
     travel = json.loads(request.args.get('travel'))
     accommodation = json.loads(request.args.get('accommodation'))
 
-    pois = get_POIs_for_destination(destination_id, pref_scores)
+    pois = get_POIs_for_destination(destination_id, pref_scores, False)
 
     return itinerary.calculate_itinerary(
         dict(pois), travel, accommodation, constraints, soft_prefs, pref_scores)
@@ -111,7 +111,7 @@ def get_itineraries_for_evaluation(dest_id):
     inspirock_itinerary_with_details = evaluation.get_poi_details_for_itinerary(
         inspirock_itinerary)
 
-    pois = get_POIs_for_destination(dest_id, {})
+    pois = get_POIs_for_destination(dest_id, {}, False)
     pois_list = get_pois_list(pois)
     clicks_id = uuid.uuid4()
     return jsonify(itineraries=dict(blimp=blimp_itinerary, google=google_itinerary_with_details, inspirock=inspirock_itinerary_with_details), all_activities=pois_list, clicks_id=clicks_id.hex)

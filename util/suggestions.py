@@ -152,7 +152,8 @@ def fetch_currency_suggestions():
 
 def fetch_activity_suggestions():
     activities_query = db_manager.query("""
-    SELECT id, name, plural_name, icon_prefix FROM categories WHERE culture_score <> 0
+    SELECT id, name, plural_name, icon_prefix FROM categories
+    ORDER BY culture_score DESC
     """)
     activities = []
     for activity in activities_query:

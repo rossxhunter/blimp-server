@@ -49,7 +49,7 @@ def populate_travel_times():
     for dest in dests_query:
         start_node = (str(dest[0]), {"is_start": True,
                                      "latitude": dest[1], "longitude": dest[2], "score": 0, "popularity": 0, "rating": 0})
-        pois = itinerary.get_POIs_for_destination(dest[0], {})
+        pois = itinerary.get_POIs_for_destination(dest[0], {}, False)
         itinerary.get_durations(pois, start_node)
 
 

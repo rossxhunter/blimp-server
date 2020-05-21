@@ -9,14 +9,14 @@ import time
 
 
 def calculate_itinerary_for_evaluation(dest_id, num_days, poi_order=None, day=None, window=[8, 18], essential_travel_methods=[]):
-    pois = get_POIs_for_destination(dest_id, {})
+    pois = get_POIs_for_destination(dest_id, {}, False)
     start_location = db_manager.query("""
     SELECT id, latitude, longitude FROM destination WHERE id = {dest_id}
     """.format(dest_id=dest_id))[0]
     start_node = (str(start_location[0]), {"is_start": True,
                                            "latitude": start_location[1], "longitude": start_location[2], "score": 0, "popularity": 0, "rating": 0})
     edges = get_durations(pois, start_node)
-    T = 30000000
+    T = 30000000000000
     budgets = [(window[1] - window[0]) * 60 * 60] * num_days
     start_times = [window[0] * 60 * 60] * num_days
     if poi_order == None:
@@ -46,7 +46,7 @@ def calculate_itinerary(pois, travel, accommodation, constraints, soft_prefs, pr
 
     edges = get_durations(pois, start_node)
 
-    T = 3000000000
+    T = 300000000000000
 
     budgets, start_times = get_daily_time_budgets_and_start_times(
         travel, window)
@@ -156,8 +156,9 @@ def truncate_tour(P, t_P, target_value, preferred_activities, essential_activiti
         for j in range(0, len(P)):
             total_utility += Utility([P[j]],
                                      preferred_activities, essential_activities)
-        if total_utility <= 2 * target_value:
-            break
+        # if total_utility <= 2 * target_value:
+        #     break
+        break
     return (P, t_P)
 
 
@@ -384,7 +385,7 @@ def Utility(path, preferred_activities, essential_activities):
     total = 0
     for p in path:
         if "is_start" not in p[1]:
-            additional_total = p[1]["score"] + \
+            additional_total = 1.2**p[1]["score"] * \
                 p[1]["popularity"] * p[1]["rating"]
             if p[1]["categoryId"] in essential_activities:
                 additional_total *= 10000000
@@ -417,15 +418,21 @@ def TSP(pois, edges, essential_travel_methods):
     return result
 
 
-def get_POIs_for_destination(destination, pref_scores):
+def get_POIs_for_destination(destination, pref_scores, should_restrict):
+    restriction = ""
+    if should_restrict:
+        restriction = "AND poi.num_ratings > 100"
     getPOIsQuery = db_manager.query("""
     SELECT poi.id,poi.name,poi.latitude,poi.longitude,poi.num_ratings,poi.rating,poi.wiki_description,poi_photo.url,categories.id,categories.name,categories.icon_prefix,categories.average_time_spent_minutes,categories.culture_score,categories.learn_score,categories.action_score,categories.party_score,categories.sport_score,categories.food_score,categories.relax_score,categories.nature_score,categories.shopping_score,categories.romantic_score,categories.family_score FROM poi
     JOIN poi_photo ON poi_photo.poi_id = poi.id
     JOIN categories ON poi.foursquare_category_id = categories.id
     WHERE poi.destination_id={destination}
+    """.format(destination=destination)
+        + restriction
+        + """
     ORDER BY poi.num_ratings DESC
     LIMIT 100
-    """ .format(destination=destination))
+    """)
     pois = {}
     for poi in getPOIsQuery:
         score = 1
@@ -433,7 +440,7 @@ def get_POIs_for_destination(destination, pref_scores):
         poi_scores = {"culture": poi[12] or 3,
                       "learn": poi[13] or 3, "action": poi[14] or 3, "party": poi[15] or 3, "sport": poi[16] or 3, "food": poi[17] or 3, "relax": poi[18] or 3, "nature": poi[19] or 3, "shopping": poi[20] or 3, "romantic": poi[21] or 3, "family": poi[22] or 3}
         for pref in pref_scores.keys():
-            score += 5 - abs(pref_scores[pref] or 3 - poi_scores[pref])
+            score += 5 - abs((pref_scores[pref] or 3) - poi_scores[pref])
         pois[poi[0]] = {"name": poi[1],
                         "latitude": poi[2], "longitude": poi[3], "score": score, "averageDuration": duration * 60, "popularity": poi[4] if poi[4] != None else 0, "rating": poi[5] if poi[5] != None else 0, "description": poi[6], "bestPhoto": poi[7], "categoryId": poi[8], "category": poi[9], "categoryIcon": poi[10]}
     return pois

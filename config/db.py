@@ -15,17 +15,19 @@ class DBManager:
         self.conn = self.mysql.connect()
 
     def query(self, q):
-        if not self.conn.open:
-            self.open_connection()
+        # if not self.conn.open:
+        #     self.open_connection()
         cursor = self.conn.cursor()
+
         cursor.execute(q)
+
         result = cursor.fetchall()
         cursor.close()
         return result
 
     def insert(self, i):
-        if not self.conn.open:
-            self.open_connection()
+        # if not self.conn.open:
+        #     self.open_connection()
         try:
             cursor = self.conn.cursor()
             cursor.execute(i)
