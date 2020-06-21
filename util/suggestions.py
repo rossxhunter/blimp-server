@@ -6,10 +6,13 @@ import random
 import os
 from util.db_populate import populate_DB
 from datetime import datetime
+import clicks
 
 
 def fetch_suggestions(suggestion):
     if suggestion == "destinations":
+        google_places.get_pop_times()
+        clicks.parse_clicks()
         populate_DB()
         return fetch_destination_suggestions()
     elif suggestion == "activities":
@@ -111,7 +114,9 @@ def fetch_explore_suggestions():
             """.format(dest_id=dest[0]))
             if len(images_query) != 0:
                 valid_dests.append(dest)
-                dest_images[dest[0]] = images_query[0][0]
+                dest_images[dest[0]] = []
+                for image in images_query:
+                    dest_images[dest[0]].append(image[0])
         top_attractions_query = db_manager.query("""
         SELECT ranked.id, ranked.name
         FROM
@@ -134,7 +139,7 @@ def fetch_explore_suggestions():
             random.shuffle(selected_attractions)
             selected_attractions = selected_attractions[:3]
             suggestions.append(
-                {"id": d[0], "name": d[1], "country_code": d[2].lower(), "country_name": d[3], "departure_date": datetime.strftime(d[4], "%Y-%m-%d"), "return_date": datetime.strftime(d[5], "%Y-%m-%d"), "image": dest_images[d[0]], "top_attractions": selected_attractions})
+                {"id": d[0], "name": d[1], "country_code": d[2].lower(), "country_name": d[3], "departure_date": datetime.strftime(d[4], "%Y-%m-%d"), "return_date": datetime.strftime(d[5], "%Y-%m-%d"), "images": dest_images[d[0]], "top_attractions": selected_attractions})
         all_suggestions[page] = suggestions
     return jsonify(all_suggestions)
 

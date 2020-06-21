@@ -36,9 +36,10 @@ def get_holiday(constraints, soft_prefs, pref_scores, feedback=None):
     travel, accommodation = choose_travel_and_accommodation(
         travel_options, accommodation_options, constraints["budget_leq"], feedback)
 
-    pois = get_POIs_for_destination(destination["id"], pref_scores, True)
+    pois, max_popularity = get_POIs_for_destination(
+        destination["id"], pref_scores, True)
     itinerary = calculate_itinerary(
-        dict(pois), travel, accommodation, constraints, soft_prefs, pref_scores)
+        dict(pois), travel, accommodation, constraints, soft_prefs, pref_scores, max_popularity)
 
     pois_list = get_pois_list(pois)
 

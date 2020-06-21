@@ -13,7 +13,7 @@ def get_poi_details_for_itinerary(itinerary):
         return {}
 
     details_query = db_manager.query("""
-    SELECT poi.id, poi.name, rating, url, wiki_description, categories.name, categories.icon_prefix
+    SELECT poi.id, poi.name, rating, num_ratings, url, wiki_description, categories.name, categories.icon_prefix
     FROM poi
     JOIN poi_photo ON poi_photo.poi_id = poi.id
     JOIN categories ON categories.id = poi.foursquare_category_id
@@ -29,8 +29,8 @@ def get_poi_details_for_itinerary(itinerary):
             details = poi_details[poi["id"]]
             if day[0] not in itinerary_with_details:
                 itinerary_with_details[day[0]] = []
-            itinerary_with_details[day[0]].append({"id": poi["id"], "startTime": poi["startTime"], "duration": poi["duration"], "travelTimeToNext": poi["travelTimeToNext"], "travelMethodToNext": poi["travelMethodToNext"], "name": details[1], "rating": details[2],
-                                                   "bestPhoto": details[3], "description": details[4], "category": details[5], "categoryIcon": details[6]})
+            itinerary_with_details[day[0]].append({"id": poi["id"], "startTime": poi["startTime"], "duration": poi["duration"], "travelTimeToNext": poi["travelTimeToNext"], "travelMethodToNext": poi["travelMethodToNext"], "name": details[1], "rating": details[2], "popularity": details[3],
+                                                   "bestPhoto": details[4], "description": details[5], "category": details[6], "categoryIcon": details[7]})
 
     return itinerary_with_details
 
@@ -51,5 +51,5 @@ def get_external_itinerary(provider, dest_id):
     timed_itinerary = {}
     for day in itin.items():
         timed_itinerary[day[0]] = itinerary.calculate_itinerary_for_evaluation(
-            dest_id, 3, poi_order=day[1], day=day[0])[0]
+            dest_id, 3, poi_order=day[1], day=day[0], window=[8, 20])[0]
     return timed_itinerary

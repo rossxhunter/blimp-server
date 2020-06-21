@@ -8,7 +8,7 @@ import json
 def get_accommodation_options(dest, check_in_date, check_out_date, travellers, accommodation_type, accommodation_stars, accommodation_amenities, currency):
 
     timestamp = datetime.now()
-    timestamp_hour_ago = timestamp - timedelta(hours=1)
+    timestamp_hour_ago = timestamp - timedelta(hours=6)
 
     cache_query = db_manager.query("""
     SELECT result FROM accommodation_result
@@ -20,7 +20,7 @@ def get_accommodation_options(dest, check_in_date, check_out_date, travellers, a
         accommodation_details = eval(cache_query[0][0])
     else:
         accommodation_options = amadeus.get_accommodation_for_destination(
-            dest, check_in_date, check_out_date, travellers, accommodation_type, accommodation_stars, accommodation_amenities, currency)
+            dest, check_in_date, check_out_date, travellers, accommodation_type, accommodation_stars, accommodation_amenities, currency, [], None)
 
         dep_date_dt = datetime.strptime(check_in_date, '%Y-%m-%d')
         ret_date_dt = datetime.strptime(check_out_date, '%Y-%m-%d')
@@ -29,7 +29,7 @@ def get_accommodation_options(dest, check_in_date, check_out_date, travellers, a
         accommodation_details = []
         rates = {}
         i = 0
-        for acc in accommodation_options["data"]:
+        for acc in accommodation_options:
             if "rating" in acc["hotel"] and int(acc["hotel"]["rating"]) >= accommodation_stars:
                 conversion = get_exchange_rate_for_accommodation(
                     acc["offers"][0]["price"]["currency"], currency, rates)

@@ -2,6 +2,13 @@ from config import db_manager
 import math
 
 
+def calculate_diversity_index(cat_counts, total_count):
+    sum_cats = 0
+    for cats in cat_counts.items():
+        sum_cats += cats[1] * (cats[1] - 1)
+    return 1 - (sum_cats / (total_count * (total_count - 1)))
+
+
 def round_to_nearest(x, base):
     return base * math.ceil(x/base)
 

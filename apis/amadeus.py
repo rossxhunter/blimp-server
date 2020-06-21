@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from util.util import list_to_str_no_brackets
 from apis import exchange_rates
 from util.exceptions import NoResults
+import requests
 
 amadeus = Client(
     hostname='production',
@@ -13,32 +14,30 @@ amadeus = Client(
 )
 
 
-def get_accommodation_for_destination(dest, check_in_date, check_out_date, travellers, accommodation_type, accommodation_stars, accommodation_amenities, currency):
+def get_accommodation_for_destination(dest, check_in_date, check_out_date, travellers, accommodation_type, accommodation_stars, accommodation_amenities, currency, acc_list, next_token):
     if accommodation_stars == 1:
         accommodation_stars_range = [1, 2, 3, 4]
     else:
         accommodation_stars_range = list(range(accommodation_stars, 6))
-    accommodation = amadeus.shopping.hotel_offers.get(
-        view="FULL", cityCode=dest, checkInDate=check_in_date, checkOutDate=check_out_date, adults=travellers["adults"], sort="PRICE", currency=currency).result
-    # f = open("data/hotels_spec_data.txt", "w")
-    # f.write(json.dumps(accommodation))
-    # f.close()
-    # f = open("data/hotels_spec_data.txt", "r")
-    # accommodation = json.loads(f.read())
-    # f.close()
-    return accommodation
+    if next_token == None:
+        accommodation = amadeus.shopping.hotel_offers.get(view="FULL", cityCode=dest, checkInDate=check_in_date, checkOutDate=check_out_date,
+                                                          includeClosed="false", adults=travellers["adults"], currency=currency).result
+    else:
+        accommodation = amadeus.shopping.hotel_offers.get(view="FULL", cityCode=dest, checkInDate=check_in_date, checkOutDate=check_out_date,
+                                                          includeClosed="false", adults=travellers["adults"], currency=currency, page={"offset": next_token}).result
+    acc_list.extend(accommodation["data"])
+    if "meta" in accommodation and "links" in accommodation["meta"] and "next" in accommodation["meta"]["links"]:
+        current_next_token = accommodation["meta"]["links"]["next"].split(
+            "page[offset]=", 1)[1]
+        return get_accommodation_for_destination(dest, check_in_date, check_out_date, travellers,
+                                                 accommodation_type, accommodation_stars, accommodation_amenities, currency, acc_list, current_next_token)
+    return acc_list
 
 
 def get_direct_flights_from_origin_to_desintaion(origin, dest, departure_date, return_date, travellers, currency):
     flights = amadeus.shopping.flight_offers_search.get(
         originLocationCode=origin, destinationLocationCode=dest, departureDate=departure_date, returnDate=return_date, adults=travellers["adults"], nonStop="true", currencyCode=currency).result
 
-    # f = open("data/flights_spec_data.txt", "w")
-    # f.write(json.dumps(flights) + "\n")
-    # f.close()
-    # f = open("data/flights_spec_data.txt", "r")
-    # flights = json.loads(f.read())
-    # f.close()
     return flights
 
 
@@ -59,11 +58,5 @@ def get_all_return_flights(origin, departure_date, return_date):
 
     flights = amadeus.shopping.flight_destinations.get(
         origin=origin, departureDate=departure_date, duration=duration, nonStop="true").result
-    # f = open("flights_data.txt", "w")
-    # f.write(json.dumps(flights))
-    # f.close()
-    # f = open("data/flights_data.txt", "r")
-    # flights = json.loads(f.read())
-    # f.close()
 
     return flights
