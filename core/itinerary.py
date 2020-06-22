@@ -14,6 +14,7 @@ def calculate_itinerary_for_evaluation(dest_id, num_days, poi_order=None, day=No
         utility_hyperparams = hyperparams
         hyperparams["score"] = 0.1
         hyperparams["preferred_activity"] = 2
+        hyperparams["random"] = 1.3
     else:
         utility_hyperparams = {"popularity": 200, "rating": 10,
                                "travel_time": 1.1, "diversity": 10,
