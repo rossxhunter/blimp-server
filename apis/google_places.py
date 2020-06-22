@@ -9,7 +9,7 @@ import googlemaps
 from util.util import list_to_str_no_brackets
 import requests
 import time
-import populartimes
+# import populartimes
 
 client = googlemaps.Client(key=os.environ["GOOGLE_API_KEY"])
 
@@ -18,10 +18,10 @@ USER_AGENT = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_1) "
                             "Chrome/54.0.2840.98 Safari/537.36"}
 
 
-def get_pop_times():
-    pop_times = populartimes.get_id(os.environ["GOOGLE_API_KEY"],
-                                    "ChIJPy8Y5kIFdkgRxGSXw4Xjt3s")
-    print(pop_times)
+# def get_pop_times():
+#     pop_times = populartimes.get_id(os.environ["GOOGLE_API_KEY"],
+#                                     "ChIJPy8Y5kIFdkgRxGSXw4Xjt3s")
+#     print(pop_times)
 
 
 def fetch_images(google_id):
