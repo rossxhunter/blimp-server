@@ -11,7 +11,7 @@ import clicks
 
 def fetch_suggestions(suggestion):
     if suggestion == "destinations":
-        google_places.get_pop_times()
+        # google_places.get_pop_times()
         clicks.parse_clicks()
         populate_DB()
         return fetch_destination_suggestions()
