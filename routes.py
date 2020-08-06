@@ -30,6 +30,47 @@ def get_holiday():
     return json.dumps(dict(clicks_id=clicks_id.hex, holiday=holiday.get_holiday(constraints, soft_prefs, pref_scores)))
 
 
+@application.route('/city_details/<city>', methods=['GET'])
+def get_city_details(city):
+    city = int(city)
+    city_query = db_manager.query("""
+    SELECT name, wiki_description, destination.population, CurrencyName, Languages, country_code, MAX(average_temp_c) FROM destination
+    JOIN country ON destination.country_code = country.ISO
+    JOIN climate ON climate.weather_station_id = destination.weather_station_id
+    WHERE id = {city}
+    """.format(city=city))
+    language_code = city_query[0][4].split(',')[0].split('-')[0]
+    language_query = db_manager.query("""
+    SELECT name FROM language
+    WHERE iso = "{language_code}"
+    """.format(language_code=language_code))
+    images_query = db_manager.query("""
+    SELECT url FROM destination_photo
+    WHERE dest_id = {city}
+    """.format(city=city))
+    images = []
+    for image in images_query:
+        images.append(image[0])
+    attractions_query = db_manager.query("""
+    SELECT poi.name, categories.name, categories.icon_prefix, poi_photo.url, poi.rating
+    FROM poi
+    JOIN poi_photo ON poi_photo.reference = (
+        SELECT p.reference FROM poi_photo AS p
+        WHERE p.poi_id = poi.id
+        LIMIT 1
+    )
+    JOIN categories ON categories.id = foursquare_category_id
+    WHERE poi.destination_id = {city}
+    ORDER BY poi.num_ratings DESC
+    """.format(city=city))
+    attractions = []
+    for i in range(0, min(len(attractions_query), 5)):
+        attractions.append(
+            {"name": attractions_query[i][0], "category": attractions_query[i][1], "categoryIcon": attractions_query[i][2], "bestPhoto": attractions_query[i][3], "rating": attractions_query[i][4], "description": ""})
+    similar_destinations = suggestions.fetch_similar_destinations(city)
+    return jsonify({"id": city, "name": city_query[0][0], "attractions": attractions, "similarDestinations": similar_destinations, "images": images, "country_code": city_query[0][5], "description": city_query[0][1], "population": city_query[0][2], "currency": city_query[0][3], "language": language_query[0][0], "temperature": city_query[0][6]})
+
+
 @application.route('/holiday_from_feedback', methods=['GET'])
 def get_holiday_from_feedback():
     constraints = json.loads(request.args.get('constraints'))

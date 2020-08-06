@@ -51,5 +51,5 @@ def get_external_itinerary(provider, dest_id):
     timed_itinerary = {}
     for day in itin.items():
         timed_itinerary[day[0]] = itinerary.calculate_itinerary_for_evaluation(
-            dest_id, 3, poi_order=day[1], day=day[0], window=[8, 20])[0]
+            dest_id, 3, poi_order=day[1], day=day[0], window=[8, 22])[0]
     return timed_itinerary

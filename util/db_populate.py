@@ -1,5 +1,5 @@
 from config import db_manager
-from apis import foursquare, wikipedia, google_places, pixabay, facebook_places, wmo, geonames
+from apis import foursquare, wikipedia, google_places, pixabay, wmo, geonames
 from core import flights, accommodation, itinerary
 import urllib
 import shutil

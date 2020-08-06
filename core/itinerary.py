@@ -9,7 +9,7 @@ import time
 from random import random
 
 
-def calculate_itinerary_for_evaluation(dest_id, num_days, poi_order=None, day=None, window=[8, 18], essential_travel_methods=[], hyperparams=None):
+def calculate_itinerary_for_evaluation(dest_id, num_days, poi_order=None, day=None, window=[8, 22], essential_travel_methods=[], hyperparams=None):
     if hyperparams != None:
         utility_hyperparams = hyperparams
         hyperparams["score"] = 0.1
