@@ -1,5 +1,5 @@
 from config import db_manager
-from apis import foursquare, wikipedia, google_places, pixabay, wmo, geonames
+from apis import foursquare, wikipedia, google_places, pixabay, wmo, geonames, amadeus
 from core import flights, accommodation, itinerary
 import urllib
 import shutil
@@ -7,6 +7,8 @@ import os
 import requests
 import math
 from geopy import distance
+from util.city_boundaries import get_city_zones, poi_in_boundaries
+from datetime import datetime, timedelta
 
 
 def populate_DB():
@@ -43,7 +45,7 @@ def populate_DB():
 
 def populate_travel_times():
     dests_query = db_manager.query("""
-    SELECT id, latitude, longitude FROM destination 
+    SELECT id, latitude, longitude FROM destination
     WHERE tourist_score IS NOT NULL
     """)
     for dest in dests_query:
@@ -115,17 +117,33 @@ def populate_hotels():
                     if google_id != None:
                         db_manager.insert("""
                         INSERT INTO hotel (id, provider, destination_id, google_id, name)
-                        VALUES ("{hotel_id}", "amadeus", {destination_id}, "{google_id}", "{hotel_name}")
+                        VALUES ("{hotel_id}", "amadeus", {
+                                destination_id}, "{google_id}", "{hotel_name}")
                         """.format(hotel_id=acc["hotelId"], destination_id=dest[0], google_id=google_id, hotel_name=acc["name"]))
 
 
 def populate_flyable_dests():
     origin = "LON"
-    origin_id = 2643743
-    departure_date = "2020-08-27"
-    return_date = "2020-08-30"
-    available_flights = flights.get_all_return_flights(
-        origin, departure_date, return_date)
+    origin_id = db_manager.query("""
+    SELECT id FROM destination WHERE city_code = "{origin}"
+    ORDER BY population DESC LIMIT 1
+    """.format(origin=origin))[0][0]
+    durations = ["1,5"]
+    for duration in durations:
+        original_departure_date = datetime.strptime("2020-10-01", "%Y-%m-%d")
+
+        for i in range(0, 1):
+            departure_date = (original_departure_date + timedelta(days=i)
+                              ).strftime("%Y-%m-%d")
+            all_flights = amadeus.get_all_return_flights(
+                origin, departure_date, duration)
+            parsed_flights = flights.parse_flights(all_flights)
+            for flight in parsed_flights:
+                db_manager.insert("""
+                REPLACE INTO flyable_destination (origin, destination, departure_date, return_date, name, price_amount, price_currency)
+                VALUES ({origin_id}, {destination}, "{departure_date}",
+                        "{return_date}", "{name}", {price_amount}, "{price_currency}")
+                """.format(origin_id=origin_id, destination=flight["dest_id"], departure_date=flight["departureDate"], return_date=flight["returnDate"], name=flight["name"], price_amount=flight["price"]["amount"], price_currency=flight["price"]["currency"]))
 
 
 def populate_dest_wiki():
@@ -191,17 +209,17 @@ def populate_weather_ids():
         """.format(dest_id=dest[0], station_id=best_candidate[0]))
 
 
-def populate_facebook_POI_details():
-    pois = db_manager.query("""
-    SELECT id, name, latitude, longitude FROM poi WHERE facebook_checkins IS NULL
-    """)
-    for poi in pois:
-        fb = facebook_places.search_facebook_place(poi[1], poi[2], poi[3])
-        if fb != None:
-            facebook_insert = db_manager.insert("""
-            UPDATE poi SET facebook_checkins = {checkins}, facebook_about = "{about}", facebook_description = "{description}"
-            WHERE id = "{poi_id}"
-            """.format(poi_id=poi[0], checkins=fb["checkins"], about=fb["about"].replace('"', '') if "about" in fb else "", description=fb["description"].replace('"', '') if "description" in fb else ""))
+# def populate_facebook_POI_details():
+#     pois = db_manager.query("""
+#     SELECT id, name, latitude, longitude FROM poi WHERE facebook_checkins IS NULL
+#     """)
+#     for poi in pois:
+#         fb = facebook_places.search_facebook_place(poi[1], poi[2], poi[3])
+#         if fb != None:
+#             facebook_insert = db_manager.insert("""
+#             UPDATE poi SET facebook_checkins = {checkins}, facebook_about = "{about}", facebook_description = "{description}"
+#             WHERE id = "{poi_id}"
+#             """.format(poi_id=poi[0], checkins=fb["checkins"], about=fb["about"].replace('"', '') if "about" in fb else "", description=fb["description"].replace('"', '') if "description" in fb else ""))
 
 
 def populate_foursquare_POI_details():
@@ -294,25 +312,68 @@ def populate_POI_wiki_desc():
 def calculate_tourist_scores():
     dests = db_manager.query("""
     SELECT id FROM destination
-    WHERE tourist_score = 0 AND city_code IS NOT NULL
+    WHERE tourist_score IS NOT NULL AND city_code IS NOT NULL
     ORDER BY population DESC
-
     """)
+    cat_totals = []
     for dest in dests:
         pois = db_manager.query("""
-        SELECT rating, num_ratings FROM poi
+        SELECT rating, num_ratings, types, foursquare_category_id FROM poi
         WHERE destination_id = {dest_id}
         ORDER BY num_ratings DESC
-        LIMIT 10
+        LIMIT 100
         """.format(dest_id=dest[0]))
         score = 0
-        for poi in pois:
+        for poi in pois[:10]:
             if poi[0] != None and poi[1] != None:
                 score += poi[0] * poi[1]
         db_manager.insert("""
         UPDATE destination SET tourist_score = {score}
         WHERE id = {dest_id}
         """.format(score=score, dest_id=dest[0]))
+        cats = {"dest": dest[0], "culture": 1, "shopping": 1, "nightlife": 1}
+        for poi in pois:
+            types = poi[2]
+            foursquare_cat = poi[3]
+            if foursquare_cat == "4bf58dd8d48988d12d941735" or foursquare_cat == "4deefb944765f83613cdba6e":
+                cats["culture"] += 1
+            if "museum" in types:
+                cats["culture"] += 1
+            if "art_gallery" in types:
+                cats["culture"] += 1
+            if "place_of_worship" in types:
+                cats["culture"] += 1
+            if "nightclub" in types:
+                cats["nightlife"] += 1
+            if "bar" in types:
+                cats["nightlife"] += 1
+            if "casino" in types:
+                cats["nightlife"] += 1
+            if "shopping_mall" in types:
+                cats["shopping"] += 1
+            if "store" in types:
+                cats["shopping"] += 1
+            if "clothing_store" in types:
+                cats["shopping"] += 1
+            if "department_store" in types:
+                cats["shopping"] += 1
+        cat_totals.append(cats)
+    max_culture = 1
+    max_shopping = 1
+    max_nightlife = 1
+    for c in cat_totals:
+        if c["culture"] > max_culture:
+            max_culture = c["culture"]
+        if c["shopping"] > max_shopping:
+            max_shopping = c["shopping"]
+        if c["nightlife"] > max_nightlife:
+            max_nightlife = c["nightlife"]
+    for c in cat_totals:
+        db_manager.insert("""
+        UPDATE destination
+        SET culture_score = {culture_score}, shopping_score = {shopping_score}, nightlife_score = {nightlife_score}
+        WHERE id = {dest_id}
+        """.format(dest_id=c["dest"], culture_score=(c["culture"]/max_culture) * 10, shopping_score=(c["shopping"]/max_shopping) * 10, nightlife_score=(c["nightlife"]/max_nightlife) * 10))
 
 
 def add_original_names():
@@ -358,30 +419,34 @@ def add_missing_POIs_from_external_itineraries():
 def populate_POI_table():
     dests = db_manager.query("""
     SELECT id, latitude, longitude, name, country_code FROM destination
-    WHERE city_code IS NOT NULL AND tourist_score IS NULL
+    WHERE city_code IS NOT NULL AND tourist_score IS NULL AND name = "London"
     ORDER BY population DESC
-    LIMIT 5
+    LIMIT 1
     """)
     poisForDB = []
     for dest in dests:
+        zones = get_city_zones(dest[0])
+        for zone in zones:
+            pois = google_places.get_nearby_POIs(
+                zone["latitude"], zone["longitude"], zone["radius"], "en")
+            for poi in pois:
+                if poi_in_boundaries(dest[0], poi["geometry"]["location"]["lat"], poi["geometry"]["location"]["lng"]):
+                    db_manager.insert("""
+                    REPLACE INTO poi (id, destination_id, name, latitude, longitude, rating, num_ratings, types)
+                    VALUES ("{id}", {destination_id}, "{name}", {latitude},
+                            {longitude}, {rating}, {num_ratings}, "{types}")
+                    """.format(id=poi["place_id"], destination_id=dest[0], name=poi["name"].replace('"', ''), latitude=poi["geometry"]["location"]["lat"], longitude=poi["geometry"]["location"]["lng"], rating=poi["rating"] if "rating" in poi else "NULL", num_ratings=poi["user_ratings_total"] if "user_ratings_total" in poi else "NULL", types=str(poi["types"]).replace('"', '').replace("'", "")))
+                    if "photos" in poi:
+                        for photo in poi["photos"]:
+                            db_manager.insert("""
+                            REPLACE INTO poi_photo (reference, poi_id, height, width)
+                            VALUES ("{reference}", "{poi_id}",
+                                    {height}, {width})
+                            """.format(reference=photo["photo_reference"], poi_id=poi["place_id"], height=photo["height"], width=photo["width"]))
         db_manager.insert("""
         UPDATE destination SET tourist_score = 0
         WHERE id = {dest_id}
         """.format(dest_id=dest[0]))
-        pois = google_places.get_nearby_POIs(
-            dest[1], dest[2], "en")
-        for poi in pois:
-            db_manager.insert("""
-            INSERT INTO poi (id, destination_id, name, latitude, longitude, rating, num_ratings, types)
-            VALUES ("{id}", {destination_id}, "{name}", {latitude},
-                    {longitude}, {rating}, {num_ratings}, "{types}")
-            """.format(id=poi["place_id"], destination_id=dest[0], name=poi["name"].replace('"', ''), latitude=poi["geometry"]["location"]["lat"], longitude=poi["geometry"]["location"]["lng"], rating=poi["rating"] if "rating" in poi else "NULL", num_ratings=poi["user_ratings_total"] if "user_ratings_total" in poi else "NULL", types=str(poi["types"]).replace('"', '').replace("'", "")))
-            if "photos" in poi:
-                for photo in poi["photos"]:
-                    db_manager.insert("""
-                    INSERT INTO poi_photo (reference, poi_id, height, width)
-                    VALUES ("{reference}", "{poi_id}", {height}, {width})
-                    """.format(reference=photo["photo_reference"], poi_id=poi["place_id"], height=photo["height"], width=photo["width"]))
 
 
 def add_codes():
@@ -468,29 +533,24 @@ def calculate_destination_scores():
             score_totals.update({poi_count[0]: poi_count[2]})
 
     for dest_id, dest_scores in scores.items():
-        feature_scores = {"culture": 0, "learn": 0, "action": 0, "party": 0, "sport": 0,
-                          "food": 0, "relax": 0, "nature": 0, "shopping": 0, "romantic": 0, "family": 0}
+        feature_scores = {"culture": 0, "active": 0,
+                          "nature": 0, "shopping": 0, "food": 0, "nightlife": 0}
         for dest_cat_score in dest_scores:
             poi_scores = db_manager.query("""
-            SELECT culture_score, learn_score, action_score, party_score, sport_score, food_score, relax_score, nature_score, shopping_score, romantic_score, family_score FROM categories WHERE id = "{cat_id}";
+            SELECT culture_score, active_score, nature_score, shopping_score, food_score, nightlife_score FROM categories WHERE id = "{cat_id}";
             """.format(cat_id=dest_cat_score[0]))[0]
             feature_scores["culture"] += dest_cat_score[1] * poi_scores[0]
-            feature_scores["learn"] += dest_cat_score[1] * poi_scores[1]
-            feature_scores["action"] += dest_cat_score[1] * poi_scores[2]
-            feature_scores["party"] += dest_cat_score[1] * poi_scores[3]
-            feature_scores["sport"] += dest_cat_score[1] * poi_scores[4]
-            feature_scores["food"] += dest_cat_score[1] * poi_scores[5]
-            feature_scores["relax"] += dest_cat_score[1] * poi_scores[6]
-            feature_scores["nature"] += dest_cat_score[1] * poi_scores[7]
-            feature_scores["shopping"] += dest_cat_score[1] * poi_scores[8]
-            feature_scores["romantic"] += dest_cat_score[1] * poi_scores[9]
-            feature_scores["family"] += dest_cat_score[1] * poi_scores[10]
+            feature_scores["active"] += dest_cat_score[1] * poi_scores[1]
+            feature_scores["nature"] += dest_cat_score[1] * poi_scores[2]
+            feature_scores["shopping"] += dest_cat_score[1] * poi_scores[3]
+            feature_scores["food"] += dest_cat_score[1] * poi_scores[4]
+            feature_scores["nightlife"] += dest_cat_score[1] * poi_scores[5]
         for feature, score in feature_scores.items():
             feature_scores[feature] = get_simplified_score(
                 score, score_totals[dest_id])
         poi_counts = db_manager.insert("""
-        UPDATE destination SET culture_score={culture_score}, learn_score={learn_score}, action_score={action_score}, party_score={party_score}, sport_score={sport_score}, food_score={food_score}, relax_score={relax_score}, nature_score={nature_score}, shopping_score={shopping_score}, romantic_score={romantic_score}, family_score={family_score} WHERE id={dest_id};
-        """ .format(culture_score=feature_scores["culture"], learn_score=feature_scores["learn"], action_score=feature_scores["action"], party_score=feature_scores["party"], sport_score=feature_scores["sport"], food_score=feature_scores["food"], relax_score=feature_scores["relax"], nature_score=feature_scores["nature"], shopping_score=feature_scores["shopping"], romantic_score=feature_scores["romantic"], family_score=feature_scores["family"], dest_id=dest_id))
+        UPDATE destination SET culture_score={culture_score}, active_score={active_score}, nature_score={nature_score}, shopping_score={shopping_score}, food_score={food_score}, nightlife_score={nightlife_score} WHERE id={dest_id};
+        """ .format(culture_score=feature_scores["culture"], active_score=feature_scores["active"], nature_score=feature_scores["nature"], shopping_score=feature_scores["shopping"], food_score=feature_scores["food"], nightlife_score=feature_scores["nightlife"], dest_id=dest_id))
 
 
 def get_simplified_score(score, total):

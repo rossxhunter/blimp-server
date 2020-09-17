@@ -7,58 +7,43 @@ import re
 from geopy import distance
 
 
-def get_all_return_flights(origin, departure_date, return_date):
+def get_return_flight_destinations(origin, departure_date, return_date):
 
     origin_id = db_manager.query("""
     SELECT id FROM destination WHERE city_code = "{origin}"
     ORDER BY population DESC LIMIT 1
     """.format(origin=origin))[0][0]
 
-    # cache_query = db_manager.query("""
-    # SELECT destination, name, departure_date, return_date, price_amount, price_currency FROM flyable_destination
-    # WHERE origin = {origin_id} AND departure_date = "{departure_date}" AND return_date = "{return_date}"
-    # """.format(origin_id=origin_id, departure_date=departure_date, return_date=return_date))
-
     cache_query = db_manager.query("""
-    SELECT result FROM flyable_destination_result
+    SELECT destination, name, departure_date, return_date, price_amount, price_currency FROM flyable_destination
     WHERE origin = {origin_id} AND departure_date = "{departure_date}" AND return_date = "{return_date}"
     """.format(origin_id=origin_id, departure_date=departure_date, return_date=return_date))
-
-    parsed_flights = {}
-
-    # for d in cache_query:
-    #     parsed_flights[d[0]] = {"name": d[1], "departureDate": d[2], "returnDate": d[3], "price": {
-    #         "amount": d[4], "currency": d[5]}}
-
-    if len(cache_query) != 0:
-        parsed_flights = eval(cache_query[0][0])
-    else:
-        flights = amadeus.get_all_return_flights(
-            origin, departure_date, return_date)
-        parsed_flights = parse_flights(flights)
-        # for flight in parsed_flights.items():
-        # db_manager.insert("""
-        # REPLACE INTO flyable_destination (origin, destination, departure_date, return_date, name, price_amount, price_currency)
-        # VALUES ({origin_id}, {destination}, "{departure_date}",
-        #         "{return_date}", "{name}", {price_amount}, "{price_currency}")
-        # """.format(origin_id=origin_id, destination=flight[0], departure_date=flight[1]["departureDate"], return_date=flight[1]["returnDate"], name=flight[1]["name"], price_amount=flight[1]["price"]["amount"], price_currency=flight[1]["price"]["currency"]))
-        db_manager.insert("""
-        REPLACE INTO flyable_destination_result (origin, departure_date, return_date, result)
-        VALUES ({origin_id}, "{departure_date}", "{return_date}", "{result}")
-        """.format(origin_id=origin_id, departure_date=departure_date, return_date=return_date, result=parsed_flights))
-
-    return parsed_flights
+    flights = {}
+    for f in cache_query:
+        flights[f[0]] = {"name": f[1], "departureDate": f[2],
+                         "returnDate": f[3], "price": {"currency": f[5], "amount": f[4]}}
+    return flights
 
 
-def get_all_one_way_flights(origin, departure_date, return_date):
-    flights = amadeus.get_all_one_way_flights(origin, departure_date)
-    return parse_flights(flights)
+# def get_all_one_way_flights(origin, departure_date, return_date):
+#     flights = amadeus.get_all_one_way_flights(origin, departure_date)
+#     return parse_flights(flights)
 
 
 def get_direct_flights_from_origin_to_desintaion(origin, dest, departure_date, return_date, travellers, currency):
 
     timestamp = datetime.now()
     timestamp_hour_ago = timestamp - timedelta(hours=1)
+
+    origin_name = db_manager.query("""
+    SELECT name FROM destination WHERE city_code = "{origin}"
+    ORDER BY population DESC LIMIT 1
+    """.format(origin=origin))[0][0]
+
+    destination_name = db_manager.query("""
+    SELECT name FROM destination WHERE city_code = "{dest}"
+    ORDER BY population DESC LIMIT 1
+    """.format(dest=dest))[0][0]
 
     cache_query = db_manager.query("""
     SELECT result FROM flights_result
@@ -78,8 +63,12 @@ def get_direct_flights_from_origin_to_desintaion(origin, dest, departure_date, r
             details = {}
             details["outbound"] = get_flight_details(flight, 0, carriers)
             details["outbound"]["journey"] = "Outbound"
+            details["outbound"]["origin"] = origin_name
+            details["outbound"]["destination"] = destination_name
             details["return"] = get_flight_details(flight, 1, carriers)
             details["return"]["journey"] = "Return"
+            details["return"]["origin"] = destination_name
+            details["return"]["destination"] = origin_name
             details["price"] = {"amount": float(
                 flight["price"]["total"]), "currency": flight["price"]["currency"]}
             details["id"] = i
@@ -110,15 +99,15 @@ def get_flight_details(flight, journey, carriers):
         selected_flights[point]["time"] = departure_time
     selected_flights["carrierCode"] = flight_segments["carrierCode"]
     if selected_flights["carrierCode"] in carriers:
-        carrier_name, carrier_icao = carriers[selected_flights["carrierCode"]]
+        carrier_name, carrier_iata = carriers[selected_flights["carrierCode"]]
     else:
-        carrier_name, carrier_icao = get_carrier_details(
+        carrier_name, carrier_iata = get_carrier_details(
             selected_flights["carrierCode"])
         carriers[selected_flights["carrierCode"]] = (
-            carrier_name, carrier_icao)
+            carrier_name, carrier_iata)
     selected_flights["carrierName"] = carrier_name
-    selected_flights["carrierLogo"] = "https://flightaware.com/images/airline_logos/90p/" + \
-        carrier_icao + ".png"
+    selected_flights["carrierLogo"] = "http://pics.avs.io/300/100/" + \
+        carrier_iata + "@2x.png"
     selected_flights["duration"] = parse_duration(flight_segments["duration"])
     traveller_pricings = flight["travelerPricings"][0]
     selected_flights["price"] = {
@@ -129,7 +118,7 @@ def get_flight_details(flight, journey, carriers):
 
 def get_carrier_details(carrier_code):
     q = db_manager.query("""
-    SELECT name, icao_code
+    SELECT name, iata_code
     FROM airline
     WHERE iata_code = "{iata_code}"
     """.format(iata_code=carrier_code))
@@ -159,7 +148,7 @@ def get_flight_date_and_time(at):
 
 
 def parse_flights(flights):
-    results = {}
+    results = []
     currency = flights["meta"]["currency"]
     names = {}
     city_codes = {}
@@ -169,9 +158,15 @@ def parse_flights(flights):
         code = flights["data"][i]["destination"]
         type = flights["dictionaries"]["locations"][code]["subType"]
         if type == "CITY":
-            city_codes[code] = i
+            if code in city_codes:
+                city_codes[code].append(i)
+            else:
+                city_codes[code] = [i]
         elif type == "AIRPORT":
-            airport_codes[code] = i
+            if code in airport_codes:
+                airport_codes[code].append(i)
+            else:
+                airport_codes[code] = [i]
 
     dests_for_city_codes = db_manager.query("""
     SELECT city_code, id, name FROM destination WHERE city_code IN {city_codes}
@@ -202,16 +197,19 @@ def parse_flights(flights):
 
     codes = [(dests_for_city_codes, city_codes),
              (culled_dests_for_airport_codes, airport_codes)]
+
     for c in codes:
         for dest in c[0]:
             if len(dest) > 0:
                 dest_id = dest[1]
                 dest_name = dest[2]
-                amount = flights_data[c[1][dest[0]]]["price"]["total"]
-                departure_date = flights_data[c[1][dest[0]]]["departureDate"]
-                return_date = flights_data[c[1][dest[0]]]["returnDate"]
-                results[dest_id] = {"name": dest_name, "departureDate": departure_date, "returnDate": return_date, "price": {
-                    "currency": currency, "amount": amount}}
+                for i in range(0, len(c[1][dest[0]])):
+                    flight_option = flights_data[c[1][dest[0]][i]]
+                    amount = flight_option["price"]["total"]
+                    departure_date = flight_option["departureDate"]
+                    return_date = flight_option["returnDate"]
+                    results.append({"dest_id": dest_id, "name": dest_name, "departureDate": departure_date, "returnDate": return_date, "price": {
+                        "currency": currency, "amount": amount}})
             else:
                 print("NOT FOUND: " + dest[0])
     return results

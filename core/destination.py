@@ -216,12 +216,12 @@ def get_flyable_dests(constraints):
 
     if (constraints["trip_type"] == "Return"):
         return_date = constraints["return_date"]
-        all_flights = flights.get_all_return_flights(
+        all_flights = flights.get_return_flight_destinations(
             origin, departure_date, return_date)
 
-    elif (constraints["trip_type"] == "One Way"):
-        all_flights = flights.get_all_one_way_flights(
-            origin, departure_date)
+    # elif (constraints["trip_type"] == "One Way"):
+    #     all_flights = flights.get_all_one_way_flights(
+    #         origin, departure_date)
 
     return all_flights
 
@@ -267,12 +267,12 @@ def scores_recommender(pref_scores, dest_similarities):
     pref_scores_similarities = {}
 
     dests_query = db_manager.query("""
-    SELECT id, culture_score, learn_score, relax_score FROM destination WHERE id IN {dests} AND culture_score IS NOT NULL
+    SELECT id, culture_score, active_score, nature_score FROM destination WHERE id IN {dests} AND culture_score IS NOT NULL
     """.format(dests=list_to_tuple(dest_similarities.keys())))
 
     for dest_scores in dests_query:
         pref_scores_similarity = abs(
-            pref_scores["culture"] - dest_scores[1]) + abs(pref_scores["learn"] - dest_scores[2]) + abs(pref_scores["relax"] - dest_scores[3])
+            pref_scores["culture"] - dest_scores[1]) + abs(pref_scores["active"] - dest_scores[2]) + abs(pref_scores["nature"] - dest_scores[3])
         pref_scores_similarities[dest_scores[0]] = pref_scores_similarity
 
     return pref_scores_similarities

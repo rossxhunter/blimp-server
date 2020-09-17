@@ -35,6 +35,20 @@ def get_hotel_id(name, lat, lng):
         "textquery",
         location_bias="point:{lat},{lng}".format(
             lat=lat, lng=lng),
+
+        language="en",
+    )
+    if len(result["candidates"]) == 0:
+        return None
+    return result["candidates"][0]["place_id"]
+
+
+def fetch_poi_id(name, lat, lng):
+    result = client.find_place(
+        name,
+        "textquery",
+        location_bias="point:{lat},{lng}".format(
+            lat=lat, lng=lng),
         language="en",
     )
     if len(result["candidates"]) == 0:
@@ -68,7 +82,7 @@ def fetch_image_url(ref):
     return photo
 
 
-def get_nearby_POIs(latitude, longitude, lang):
+def get_nearby_POIs(latitude, longitude, radius, lang):
     location = [latitude, longitude]
     all_pois = []
     collected_all = False
@@ -80,8 +94,8 @@ def get_nearby_POIs(latitude, longitude, lang):
                 key=os.environ["GOOGLE_API_KEY"], pagetoken=next_page_token)
             nearby_pois = requests.get(url=url, params=params).json()
         else:
-            nearby_pois = client.places_nearby(location=list_to_str_no_brackets(location), keyword='tourist',
-                                               language=lang, radius=10000)
+            nearby_pois = client.places_nearby(location=list_to_str_no_brackets(location),
+                                               language=lang, radius=radius, type="tourist_attraction")
         all_pois.extend(nearby_pois["results"])
         if "next_page_token" not in nearby_pois:
             collected_all = True

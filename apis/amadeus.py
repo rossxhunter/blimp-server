@@ -36,7 +36,7 @@ def get_accommodation_for_destination(dest, check_in_date, check_out_date, trave
 
 def get_direct_flights_from_origin_to_desintaion(origin, dest, departure_date, return_date, travellers, currency):
     flights = amadeus.shopping.flight_offers_search.get(
-        originLocationCode=origin, destinationLocationCode=dest, departureDate=departure_date, returnDate=return_date, adults=travellers["adults"], nonStop="true", currencyCode=currency).result
+        originLocationCode=origin, destinationLocationCode=dest, departureDate=departure_date, returnDate=return_date, adults=travellers["adults"], children=travellers["children"], infants=travellers["infants"], nonStop="true", currencyCode=currency).result
 
     return flights
 
@@ -48,7 +48,15 @@ def get_all_one_way_flights(origin, departure_date):
     return flights
 
 
-def get_all_return_flights(origin, departure_date, return_date):
+def get_all_return_flights(origin, departure_date, duration):
+
+    flights = amadeus.shopping.flight_destinations.get(
+        origin=origin, departureDate=departure_date, duration=duration, nonStop="true", viewBy="DURATION").result
+
+    return flights
+
+
+def get_cheapest_return_flights(origin, destination, departure_date, return_date):
 
     dep_date_dt = datetime.strptime(departure_date, '%Y-%m-%d')
     dep_date_dt_plus_1 = dep_date_dt + timedelta(days=1)
@@ -56,7 +64,7 @@ def get_all_return_flights(origin, departure_date, return_date):
     ret_date_dt = datetime.strptime(return_date, '%Y-%m-%d')
     duration = (ret_date_dt - dep_date_dt).days
 
-    flights = amadeus.shopping.flight_destinations.get(
-        origin=origin, departureDate=departure_date, duration=duration, nonStop="true").result
+    flights = amadeus.shopping.flight_dates.get(
+        origin=origin, destination=destination, departureDate=departure_date, duration=duration, nonStop="true").result
 
     return flights

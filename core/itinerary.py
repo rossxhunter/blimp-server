@@ -39,7 +39,7 @@ def calculate_itinerary_for_evaluation(dest_id, num_days, poi_order=None, day=No
         visit_duration = [list(map(lambda p: p["duration"], poi_order))]
     P, times = multi_tour(
         pois, edges, budgets, start_times, k, start_node, T, poi_order, essential_travel_methods, [], [], max_popularity, utility_hyperparams)
-    itinerary = {}
+    itinerary = []
     for i in range(0, len(P)):
         day_itinerary = []
         for j in range(0, len(P[i])):
@@ -77,7 +77,7 @@ def calculate_itinerary(pois, travel, accommodation, constraints, soft_prefs, pr
     essential_activities = constraints["essential_activities"]
     P, times = multi_tour(
         pois, edges, budgets, start_times, k, start_node, T, poi_order, essential_travel_methods, preferred_activities, essential_activities, max_popularity, utility_hyperparams)
-    itinerary = {}
+    itinerary = []
     for i in range(0, len(P)):
         day_itinerary = []
         for j in range(0, len(P[i])):
@@ -85,7 +85,7 @@ def calculate_itinerary(pois, travel, accommodation, constraints, soft_prefs, pr
             a["id"] = P[i][j][0]
             a["startTime"] = times[i][j]
             day_itinerary.append(a)
-        itinerary[i] = day_itinerary
+        itinerary.append(day_itinerary)
     return itinerary
 
 
@@ -452,7 +452,7 @@ def get_POIs_for_destination(destination, pref_scores, should_restrict):
     if should_restrict:
         restriction = "AND poi.num_ratings > 100"
     getPOIsQuery = db_manager.query("""
-    SELECT poi.id,poi.name,poi.latitude,poi.longitude,poi.num_ratings,poi.rating,poi.wiki_description,poi_photo.url,categories.id,categories.name,categories.icon_prefix,categories.average_time_spent_minutes,categories.culture_score,categories.learn_score,categories.action_score,categories.party_score,categories.sport_score,categories.food_score,categories.relax_score,categories.nature_score,categories.shopping_score,categories.romantic_score,categories.family_score FROM poi
+    SELECT poi.id,poi.name,poi.latitude,poi.longitude,poi.num_ratings,poi.rating,poi.wiki_description,poi_photo.url,categories.id,categories.name,categories.icon_prefix,categories.average_time_spent_minutes,categories.culture_score,categories.active_score,categories.nature_score,categories.shopping_score,categories.food_score,categories.nightlife_score FROM poi
     JOIN poi_photo ON poi_photo.poi_id = poi.id
     JOIN categories ON poi.foursquare_category_id = categories.id
     WHERE poi.destination_id={destination}
@@ -467,7 +467,7 @@ def get_POIs_for_destination(destination, pref_scores, should_restrict):
         score = 1
         duration = poi[11] or (1 * 60)
         poi_scores = {"culture": poi[12] or 3,
-                      "learn": poi[13] or 3, "action": poi[14] or 3, "party": poi[15] or 3, "sport": poi[16] or 3, "food": poi[17] or 3, "relax": poi[18] or 3, "nature": poi[19] or 3, "shopping": poi[20] or 3, "romantic": poi[21] or 3, "family": poi[22] or 3}
+                      "active": poi[13] or 3, "nature": poi[14] or 3, "shopping": poi[15] or 3, "food": poi[16] or 3, "nightlife": poi[17] or 3}
         for pref in pref_scores.keys():
             score += 5 - abs((pref_scores[pref] or 3) - poi_scores[pref])
         pois[poi[0]] = {"name": poi[1],

@@ -11,6 +11,7 @@ from config import db_manager
 from core.itinerary import get_POIs_for_destination
 from core.holiday import get_pois_list
 import csv
+from apis.exchange_rates import get_exchange_rate
 
 
 @application.route('/')
@@ -32,9 +33,11 @@ def get_holiday():
 
 @application.route('/city_details/<city>', methods=['GET'])
 def get_city_details(city):
+    currency = request.args.get('currency')
+    origin = request.args.get('origin')
     city = int(city)
     city_query = db_manager.query("""
-    SELECT name, wiki_description, destination.population, CurrencyName, Languages, country_code, MAX(average_temp_c) FROM destination
+    SELECT name, wiki_description, destination.population, CurrencyName, Languages, country_code, MAX(average_temp_c), culture_score, shopping_score, nightlife_score FROM destination
     JOIN country ON destination.country_code = country.ISO
     JOIN climate ON climate.weather_station_id = destination.weather_station_id
     WHERE id = {city}
@@ -68,7 +71,19 @@ def get_city_details(city):
         attractions.append(
             {"name": attractions_query[i][0], "category": attractions_query[i][1], "categoryIcon": attractions_query[i][2], "bestPhoto": attractions_query[i][3], "rating": attractions_query[i][4], "description": ""})
     similar_destinations = suggestions.fetch_similar_destinations(city)
-    return jsonify({"id": city, "name": city_query[0][0], "attractions": attractions, "similarDestinations": similar_destinations, "images": images, "country_code": city_query[0][5], "description": city_query[0][1], "population": city_query[0][2], "currency": city_query[0][3], "language": language_query[0][0], "temperature": city_query[0][6]})
+    valid_dates_query = db_manager.query("""
+    SELECT departure_date, return_date, price_amount, price_currency
+    FROM flyable_destination
+    WHERE origin = {origin} AND destination = {destination}
+    """.format(origin=origin, destination=city))
+    valid_dates = []
+    if len(valid_dates_query) > 0:
+        conversion_rate = get_exchange_rate(valid_dates_query[0][3], currency)
+        for vd in valid_dates_query:
+            price = vd[2] * conversion_rate
+            valid_dates.append(
+                {"departureDate": vd[0].strftime("%Y-%m-%d"), "returnDate": vd[1].strftime("%Y-%m-%d"), "price": price})
+    return jsonify({"id": city, "name": city_query[0][0], "validDates": valid_dates, "attractions": attractions, "similarDestinations": similar_destinations, "images": images, "country_code": city_query[0][5], "description": city_query[0][1], "population": city_query[0][2], "currency": city_query[0][3], "language": language_query[0][0], "temperature": city_query[0][6], "culture": city_query[0][7], "shopping": city_query[0][8], "nightlife": city_query[0][9]})
 
 
 @application.route('/holiday_from_feedback', methods=['GET'])
@@ -93,8 +108,8 @@ def get_itinerary_from_change():
     pois, max_popularity = get_POIs_for_destination(
         destination_id, pref_scores, False)
 
-    return itinerary.calculate_itinerary(
-        dict(pois), travel, accommodation, constraints, soft_prefs, pref_scores, max_popularity)
+    return jsonify(itinerary.calculate_itinerary(
+        dict(pois), travel, accommodation, constraints, soft_prefs, pref_scores, max_popularity))
 
 
 @application.route('/itinerary', methods=['GET'])
@@ -218,7 +233,94 @@ def get_suggestions(suggestion):
 
 @application.route('/clicks/<clicks_id>/<click_name>', methods=['POST'])
 def post_click(clicks_id, click_name):
-    mode = request.headers['mode']
-    metadata = request.headers['metadata']
+    mode = request.body['mode']
+    metadata = request.body['metadata']
     add_click(clicks_id, click_name, mode, metadata)
     return "Success"
+
+
+@application.route('/user', methods=['POST'])
+def post_new_user():
+    uid = request.body['id']
+    email = request.body['email']
+    first_name = request.body['first_name']
+    last_name = request.body['last_name']
+    db_manager.insert("""
+    INSERT INTO user (id, email, first_name, last_name)
+    VALUES ("{uid}", "{email}", "{first_name}", "{last_name}")
+    """.format(uid=uid, email=email, first_name=first_name, last_name=last_name))
+    return "Success"
+
+
+@application.route('/user/<uid>', methods=['GET'])
+def get_user_details(uid):
+    user_details = db_manager.query("""
+    SELECT id, email, first_name, last_name, currency, referral_code, bookings, searches, shares, score
+    FROM user
+    WHERE id = "{uid}"
+    """.format(uid=uid))
+    return jsonify({"id": user_details[0][0], "email": user_details[0][1], "firstName": user_details[0][2], "lastName": user_details[0][3], "currency": user_details[0][4], "referralCode": user_details[0][5], "bookings": user_details[0][6], "searches": user_details[0][7], "shares": user_details[0][8], "score": user_details[0][9], "travellers": get_travellers_details(uid), "trips": get_user_trips(uid)})
+
+
+def get_user_trips(uid):
+    trips_query = db_manager.query("""
+    SELECT type, destination, departure_date, return_date
+    FROM trip
+    WHERE user = "{uid}"
+    """.format(uid=uid))
+    saved_trips = []
+    upcoming_trips = []
+    past_trips = []
+    for t in trips_query:
+        if t[0] == "saved":
+            saved_trips.append(
+                {"destination": t[1], "departureDate": t[2], "return_date": t[3]})
+        elif t[0] == "upcoming":
+            upcoming_trips.append(
+                {"destination": t[1], "departureDate": t[2], "return_date": t[3]})
+        elif t[0] == "past":
+            past_trips.append(
+                {"destination": t[1], "departureDate": t[2], "return_date": t[3]})
+    return {"saved": saved_trips, "upcoming": upcoming_trips, "past": past_trips}
+
+
+def get_travellers_details(uid):
+    travellers_query = db_manager.query("""
+    SELECT id, full_name, dob, sex, street_address, city, region, postcode, country, passport_number
+    FROM traveller
+    WHERE user = "{uid}"
+    """.format(uid=uid))
+    travellers = []
+    for t in travellers_query:
+        travellers.append({"id": t[0], "fullName": t[1], "dob": t[2], "sex": t[3], "streetAddress": t[4],
+                           "city": t[5], "region": t[6], "postcode": t[7], "country": t[8], "passportNumber": t[9]})
+    return travellers
+
+
+@application.route('/user/<uid>/traveller/<traveller_id>/address', methods=['PUT'])
+def update_traveller_address(uid, traveller_id):
+    values = request.form
+    db_manager.insert("""
+    UPDATE traveller
+    SET street_address = "{streetAddress}", city = "{city}", region = "{region}", postcode = "{postcode}", country = "{country}"
+    WHERE id = {traveller_id}
+    """.format(streetAddress=values["streetAddress"], city=values["city"], region=values["region"], postcode=values["postcode"], country=values["country"], traveller_id=traveller_id))
+    return jsonify(get_travellers_details(uid))
+
+
+@application.route('/user/<uid>/traveller', methods=['POST'])
+def add_new_traveller(uid):
+    db_manager.insert("""
+    INSERT INTO traveller (user)
+    VALUES ("{uid}")
+    """.format(uid=uid))
+    return jsonify(get_travellers_details(uid))
+
+
+@application.route('/user/<uid>/traveller/<traveller_id>', methods=['DELETE'])
+def delete_traveller(uid, traveller_id):
+    db_manager.insert("""
+    DELETE FROM traveller
+    WHERE id = {traveller_id}
+    """.format(traveller_id=traveller_id))
+    return jsonify(get_travellers_details(uid))
