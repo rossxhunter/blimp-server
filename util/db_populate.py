@@ -9,6 +9,7 @@ import math
 from geopy import distance
 from util.city_boundaries import get_city_zones, poi_in_boundaries
 from datetime import datetime, timedelta
+import re
 
 
 def populate_DB():
@@ -36,7 +37,8 @@ def populate_DB():
 
     # populate_flyable_dests()
     # populate_hotels()
-    # populate_hotel_details()
+    # populate_hotel_images()
+    populate_hotel_ratings()
     # fetch_hotel_image_urls()
 
     # OLD calculate_destination_scores()
@@ -69,26 +71,77 @@ def fetch_hotel_image_urls():
         """.format(url=url, reference=photo[0]))
 
 
-def populate_hotel_details():
+def populate_hotel_images():
     hotel_query = db_manager.query("""
-    SELECT hotel.id, hotel.google_id
+    SELECT id
     FROM hotel
-    LEFT JOIN hotel_photo ON hotel_photo.hotel_id = hotel.id
-    WHERE hotel_photo.reference IS NULL
+    WHERE images_fetched = 0
     """)
     for hotel in hotel_query:
-        hotel_details = google_places.get_poi_details(hotel[1])
-        is_correct = "lodging" in hotel_details["types"]
-        db_manager.insert("""
-        UPDATE hotel SET is_correct = {is_correct}, rating = {rating}
-        WHERE id = "{hotel_id}"
-        """.format(is_correct=is_correct, hotel_id=hotel[0], rating=hotel_details["rating"] if "rating" in hotel_details else '"NULL"'))
-        if is_correct and "photos" in hotel_details:
-            for photo in hotel_details["photos"]:
+        h = amadeus.get_accommodation_images(hotel[0])
+        if "media" in h:
+            images = h["media"]
+            for image in images:
+                url = image["uri"].replace("http://", "https://")
+                s = re.search('cloudfront.net/(.*)/', url)
+                if s != None:
+                    url = url.replace("B.JPEG", s.group(1) + ".JPEG")
                 db_manager.insert("""
-                INSERT INTO hotel_photo (reference, hotel_id, height, width)
-                VALUES ("{reference}", "{hotel_id}", {height}, {width})
-                """.format(reference=photo["photo_reference"], hotel_id=hotel[0], height=photo["height"], width=photo["width"]))
+                INSERT INTO hotel_photo (hotel_id, url, type)
+                VALUES ("{hotel_id}", "{url}", "{type}")
+                """.format(hotel_id=hotel[0], url=url, type=image["category"]))
+            db_manager.insert("""
+            UPDATE hotel
+            SET images_fetched = 1
+            WHERE id = "{hotel_id}"
+            """.format(hotel_id=hotel[0]))
+        else:
+            db_manager.insert("""
+            UPDATE hotel
+            SET images_fetched = NULL
+            WHERE id = "{hotel_id}"
+            """.format(hotel_id=hotel[0]))
+
+
+def chunks(lst, n):
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
+
+
+def populate_hotel_ratings():
+    hotel_query = db_manager.query("""
+    SELECT id
+    FROM hotel
+    WHERE ratings_fetched = 0
+    LIMIT 100
+    """)
+    hotels = chunks(hotel_query, 3)
+    for hotel_group in hotels:
+        hotel_ids = []
+        for h in hotel_group:
+            hotel_ids.append(h[0])
+        res = amadeus.get_accommodation_ratings(hotel_ids)
+        ratings = []
+        if "data" in res:
+            ratings = res["data"]
+            for rating in ratings:
+                if "sentiments" in rating:
+                    db_manager.insert("""
+                    INSERT INTO hotel_rating (hotel, overall, sleep_quality, service, facilities, room_comforts, value_for_money, catering, swimming_pool, location, internet, points_of_interest, staff)
+                    VALUES ("{hotel_id}", {overall}, {sleep_quality}, {service}, {facilities}, {room_comforts}, {value_for_money}, {catering}, {swimming_pool}, {location}, {internet}, {points_of_interest}, {staff})
+                    """.format(hotel_id=rating["hotelId"], overall=rating["overallRating"], sleep_quality=rating["sentiments"]["sleepQuality"] if "sleepQuality" in rating["sentiments"] else "NULL", swimming_pool=rating["sentiments"]["swimmingPool"] if "swimmingPool" in rating["sentiments"] else "NULL", service=rating["sentiments"]["service"] if "service" in rating["sentiments"] else "NULL", facilities=rating["sentiments"]["facilities"] if "facilities" in rating["sentiments"] else "NULL", room_comforts=rating["sentiments"]["roomComforts"], value_for_money=rating["sentiments"]["valueForMoney"] if "valueForMoney" in rating["sentiments"] else "NULL", catering=rating["sentiments"]["catering"], location=rating["sentiments"]["location"], points_of_interest=rating["sentiments"]["pointsOfInterest"], staff=rating["sentiments"]["staff"] if "staff" in rating["sentiments"] else "NULL", internet=rating["sentiments"]["internet"] if "internet" in rating["sentiments"] else "NULL"))
+                db_manager.insert("""
+                UPDATE hotel
+                SET ratings_fetched = 1
+                WHERE id = "{hotel_id}"
+                """.format(hotel_id=rating["hotelId"]))
+        for h_id in hotel_ids:
+            if h_id not in ratings:
+                db_manager.insert("""
+                UPDATE hotel
+                SET ratings_fetched = NULL
+                WHERE id = "{hotel_id}"
+                """.format(hotel_id=h_id))
 
 
 def populate_hotels():
@@ -130,7 +183,7 @@ def populate_flyable_dests():
     """.format(origin=origin))[0][0]
     durations = ["1,5"]
     for duration in durations:
-        original_departure_date = datetime.strptime("2020-10-01", "%Y-%m-%d")
+        original_departure_date = datetime.strptime("2020-10-20", "%Y-%m-%d")
 
         for i in range(0, 1):
             departure_date = (original_departure_date + timedelta(days=i)

@@ -106,7 +106,7 @@ def get_flight_details(flight, journey, carriers):
         carriers[selected_flights["carrierCode"]] = (
             carrier_name, carrier_iata)
     selected_flights["carrierName"] = carrier_name
-    selected_flights["carrierLogo"] = "http://pics.avs.io/300/100/" + \
+    selected_flights["carrierLogo"] = "https://pics.avs.io/300/100/" + \
         carrier_iata + "@2x.png"
     selected_flights["duration"] = parse_duration(flight_segments["duration"])
     traveller_pricings = flight["travelerPricings"][0]

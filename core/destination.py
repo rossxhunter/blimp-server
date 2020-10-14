@@ -169,7 +169,7 @@ def destination_satisfies_budget(flight_price, dest_id, constraints, accommodati
         currency_conversion
 
     for hotel in accommodation_options:
-        hotel_price = hotel["price"]["amount"]
+        hotel_price = hotel["cheapestPrice"]
         total_price = flight_converted_price + hotel_price
         if total_price < budget:
             return True

@@ -9,9 +9,22 @@ from datetime import datetime, timedelta
 import clicks
 
 
+def fetch_all_suggestions():
+    populate_DB()
+    destinations = fetch_destination_suggestions()
+    activities = fetch_activity_suggestions()
+    currencies = fetch_currency_suggestions()
+    explore = fetch_explore_suggestions()
+    attractions = fetch_attraction_suggestions()
+    search = fetch_search_suggestions()
+    availableFlights = fetch_available_flights()
+    testing = fetch_testing_suggestions()
+    countries = fetch_countries_suggestions()
+    return {"destinations": destinations, "activities": activities, "currencies": currencies, "explore": explore, "attractions": attractions, "search": search, "availableFlights": availableFlights, "testing": testing, "countries": countries}
+
+
 def fetch_suggestions(suggestion):
     if suggestion == "destinations":
-        populate_DB()
         return fetch_destination_suggestions()
     elif suggestion == "activities":
         return fetch_activity_suggestions()
@@ -29,6 +42,18 @@ def fetch_suggestions(suggestion):
         return fetch_testing_suggestions()
 
 
+def fetch_countries_suggestions():
+    countries_query = db_manager.query("""
+    SELECT ISO, Country
+    FROM country
+    ORDER BY Country
+    """)
+    countries = []
+    for country in countries_query:
+        countries.append({"code": country[0], "name": country[1]})
+    return countries
+
+
 def fetch_available_flights():
     min_date = datetime.strftime(datetime.now(), "%Y-%m-%d")
     max_date = datetime.strftime(
@@ -42,7 +67,7 @@ def fetch_available_flights():
     for flight in flights_query:
         flights.append({"origin": flight[0], "destination": flight[1], "departureDate": datetime.strftime(flight[2], "%Y-%m-%d"),
                         "returnDate": datetime.strftime(flight[3], "%Y-%m-%d"), "price": {"amount": flight[4], "currency": flight[5]}})
-    return jsonify(flights)
+    return flights
 
 
 def fetch_search_suggestions():
@@ -58,7 +83,7 @@ def fetch_search_suggestions():
 
     hotels_query = db_manager.query("""
     SELECT hotel.name, destination.name, destination.country_code FROM hotel
-    JOIN destination ON hotel.destination_id = destination.id
+    JOIN destination ON hotel.city = destination.city_code
     """)
     hotels = []
     for hotel in hotels_query:
@@ -77,7 +102,7 @@ def fetch_search_suggestions():
         attractions.append(
             {"name": attraction[0], "city": attraction[1], "cat_name": attraction[2], "cat_icon": attraction[3], "countryCode": attraction[4]})
 
-    return jsonify({"destinations": cities, "hotels": hotels, "attractions": attractions})
+    return {"destinations": cities, "hotels": hotels, "attractions": attractions}
 
 
 def fetch_attraction_suggestions():
@@ -108,7 +133,7 @@ def fetch_attraction_suggestions():
         print(random_nums[i])
         attractions.append(
             {"name": attractions_query[random_nums[i]][0], "city_name": attractions_query[random_nums[i]][1], "country_code": attractions_query[random_nums[i]][2], "cat_name": attractions_query[random_nums[i]][3], "cat_icon": attractions_query[random_nums[i]][4], "photo": attractions_query[random_nums[i]][5]})
-    return jsonify(attractions)
+    return attractions
 
 
 def fetch_testing_suggestions():
@@ -121,7 +146,7 @@ def fetch_testing_suggestions():
     dests = []
     for d in dests_query:
         dests.append({"id": d[0], "name": d[1]})
-    return jsonify(dests)
+    return dests
 
 
 def get_explore_dests(page, origin_id, dest_id=None):
@@ -250,7 +275,7 @@ def fetch_explore_suggestions():
             suggestions.append(
                 {"id": d[0], "name": d[1], "country_code": d[2].lower(), "country_name": d[3], "culture": d[4], "shopping": d[5], "nightlife": d[6], "images": dest_images[d[0]], "top_attractions": selected_attractions})
         all_suggestions[page] = suggestions
-    return jsonify(all_suggestions)
+    return all_suggestions
 
 
 def fetch_currency_suggestions():
@@ -261,7 +286,7 @@ def fetch_currency_suggestions():
     currencies = {}
     for currency in currencies_query:
         currencies[currency[0]] = {"name": currency[1], "symbol": currency[2]}
-    return jsonify(currencies)
+    return currencies
 
 
 def fetch_activity_suggestions():
@@ -273,7 +298,7 @@ def fetch_activity_suggestions():
     for activity in activities_query:
         activities.append(
             {"name": activity[1], "plural": activity[2], "icon": activity[3], "id": activity[0]})
-    return jsonify(activities)
+    return activities
 
 
 def fetch_destination_suggestions():
@@ -299,4 +324,4 @@ def fetch_destination_suggestions():
             {"cityName": city[1], "countryCode": city[2].lower(), "countryName": city[3], "type": "city", "id": city[0]})
 
     suggestions = cities + airports
-    return jsonify(suggestions)
+    return suggestions

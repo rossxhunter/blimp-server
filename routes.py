@@ -12,6 +12,7 @@ from core.itinerary import get_POIs_for_destination
 from core.holiday import get_pois_list
 import csv
 from apis.exchange_rates import get_exchange_rate
+from datetime import datetime
 
 
 @application.route('/')
@@ -74,8 +75,8 @@ def get_city_details(city):
     valid_dates_query = db_manager.query("""
     SELECT departure_date, return_date, price_amount, price_currency
     FROM flyable_destination
-    WHERE origin = {origin} AND destination = {destination}
-    """.format(origin=origin, destination=city))
+    WHERE origin = {origin} AND destination = {destination} AND departure_date >= "{today_date}"
+    """.format(origin=origin, destination=city, today_date=datetime.now()))
     valid_dates = []
     if len(valid_dates_query) > 0:
         conversion_rate = get_exchange_rate(valid_dates_query[0][3], currency)
@@ -226,25 +227,30 @@ def get_evaluation_values(itinerary, max_popularity):
         return None
 
 
+@application.route('/suggestions', methods=['GET'])
+def get_all_suggestions():
+    return jsonify(suggestions.fetch_all_suggestions())
+
+
 @application.route('/suggestions/<suggestion>', methods=['GET'])
 def get_suggestions(suggestion):
-    return suggestions.fetch_suggestions(suggestion)
+    return jsonify(suggestions.fetch_suggestions(suggestion))
 
 
 @application.route('/clicks/<clicks_id>/<click_name>', methods=['POST'])
 def post_click(clicks_id, click_name):
-    mode = request.body['mode']
-    metadata = request.body['metadata']
+    mode = request.form['mode']
+    metadata = request.form['metadata']
     add_click(clicks_id, click_name, mode, metadata)
     return "Success"
 
 
 @application.route('/user', methods=['POST'])
 def post_new_user():
-    uid = request.body['id']
-    email = request.body['email']
-    first_name = request.body['first_name']
-    last_name = request.body['last_name']
+    uid = request.form['id']
+    email = request.form['email']
+    first_name = request.form['first_name']
+    last_name = request.form['last_name']
     db_manager.insert("""
     INSERT INTO user (id, email, first_name, last_name)
     VALUES ("{uid}", "{email}", "{first_name}", "{last_name}")
@@ -254,33 +260,43 @@ def post_new_user():
 
 @application.route('/user/<uid>', methods=['GET'])
 def get_user_details(uid):
+    user_details = fetch_user_details(uid)
+    return jsonify(user_details)
+
+
+def fetch_user_details(uid):
     user_details = db_manager.query("""
     SELECT id, email, first_name, last_name, currency, referral_code, bookings, searches, shares, score
     FROM user
     WHERE id = "{uid}"
     """.format(uid=uid))
-    return jsonify({"id": user_details[0][0], "email": user_details[0][1], "firstName": user_details[0][2], "lastName": user_details[0][3], "currency": user_details[0][4], "referralCode": user_details[0][5], "bookings": user_details[0][6], "searches": user_details[0][7], "shares": user_details[0][8], "score": user_details[0][9], "travellers": get_travellers_details(uid), "trips": get_user_trips(uid)})
+    return {"id": user_details[0][0], "email": user_details[0][1], "firstName": user_details[0][2], "lastName": user_details[0][3], "currency": user_details[0][4], "referralCode": user_details[0][5], "bookings": user_details[0][6], "searches": user_details[0][7], "shares": user_details[0][8], "score": user_details[0][9], "travellers": get_travellers_details(uid), "trips": get_user_trips(uid)}
 
 
 def get_user_trips(uid):
     trips_query = db_manager.query("""
-    SELECT type, destination, departure_date, return_date
+    SELECT trip.id, type, destination, departure_date, return_date, destination.name, destination.country_code, destination_photo.url
     FROM trip
+    JOIN destination ON destination.id = trip.destination
+    JOIN destination_photo ON destination_photo.reference = (
+        SELECT d.reference FROM destination_photo AS d
+        WHERE d.dest_id = trip.destination
+        LIMIT 1
+    )
     WHERE user = "{uid}"
     """.format(uid=uid))
     saved_trips = []
     upcoming_trips = []
     past_trips = []
     for t in trips_query:
-        if t[0] == "saved":
-            saved_trips.append(
-                {"destination": t[1], "departureDate": t[2], "return_date": t[3]})
-        elif t[0] == "upcoming":
-            upcoming_trips.append(
-                {"destination": t[1], "departureDate": t[2], "return_date": t[3]})
-        elif t[0] == "past":
-            past_trips.append(
-                {"destination": t[1], "departureDate": t[2], "return_date": t[3]})
+        trip = {"id": t[0], "destination": t[2], "departureDate": datetime.strftime(
+            t[3], "%Y-%m-%d"), "returnDate": datetime.strftime(t[4], "%Y-%m-%d"), "name": t[5], "countryCode": t[6], "photo": t[7]}
+        if t[1] == "saved":
+            saved_trips.append(trip)
+        elif t[1] == "upcoming":
+            upcoming_trips.append(trip)
+        elif t[1] == "past":
+            past_trips.append(trip)
     return {"saved": saved_trips, "upcoming": upcoming_trips, "past": past_trips}
 
 
@@ -292,19 +308,50 @@ def get_travellers_details(uid):
     """.format(uid=uid))
     travellers = []
     for t in travellers_query:
-        travellers.append({"id": t[0], "fullName": t[1], "dob": t[2], "sex": t[3], "streetAddress": t[4],
+        travellers.append({"id": t[0], "fullName": t[1], "dob": None if t[2] == None else datetime.strftime(t[2], "%Y-%m-%d"), "sex": t[3], "streetAddress": t[4],
                            "city": t[5], "region": t[6], "postcode": t[7], "country": t[8], "passportNumber": t[9]})
     return travellers
 
 
-@application.route('/user/<uid>/traveller/<traveller_id>/address', methods=['PUT'])
-def update_traveller_address(uid, traveller_id):
+def add_speech_marks_or_nullify(s):
+    if s == None:
+        return "NULL"
+    else:
+        return '"' + s + '"'
+
+
+@application.route('/user/<uid>/traveller/<traveller_id>', methods=['PUT'])
+def update_traveller(uid, traveller_id):
     values = request.form
+    old_values_query = db_manager.query("""
+    SELECT full_name, dob, sex, street_address, city, region, postcode, country, passport_number
+    FROM traveller
+    WHERE id = "{traveller_id}"
+    """.format(traveller_id=traveller_id))[0]
+    full_name = add_speech_marks_or_nullify(
+        values["fullName"] if "fullName" in values else old_values_query[0])
+    dob = add_speech_marks_or_nullify(
+        values["dob"] if "dob" in values else (None if old_values_query[1] == None else datetime.strftime(old_values_query[1], "%Y-%m-%d")))
+    sex = add_speech_marks_or_nullify(
+        values["sex"] if "sex" in values else old_values_query[2])
+    street_address = add_speech_marks_or_nullify(values[
+        "streetAddress"] if "streetAddress" in values else old_values_query[3])
+    city = add_speech_marks_or_nullify(
+        values["city"] if "city" in values else old_values_query[4])
+    region = add_speech_marks_or_nullify(
+        values["region"] if "region" in values else old_values_query[5])
+    postcode = add_speech_marks_or_nullify(
+        values["postcode"] if "postcode" in values else old_values_query[6])
+    country = add_speech_marks_or_nullify(
+        values["country"] if "country" in values else old_values_query[7])
+    passport_number = add_speech_marks_or_nullify(
+        values["passportNumber"] if "passportNumber" in values else old_values_query[8])
+
     db_manager.insert("""
     UPDATE traveller
-    SET street_address = "{streetAddress}", city = "{city}", region = "{region}", postcode = "{postcode}", country = "{country}"
+    SET full_name={full_name}, dob={dob}, sex={sex}, street_address = {street_address}, city = {city}, region = {region}, postcode = {postcode}, country = {country}, passport_number={passport_number}
     WHERE id = {traveller_id}
-    """.format(streetAddress=values["streetAddress"], city=values["city"], region=values["region"], postcode=values["postcode"], country=values["country"], traveller_id=traveller_id))
+    """.format(full_name=full_name, dob=dob, sex=sex, street_address=street_address, city=city, region=region, postcode=postcode, country=country, passport_number=passport_number, traveller_id=traveller_id))
     return jsonify(get_travellers_details(uid))
 
 
@@ -324,3 +371,79 @@ def delete_traveller(uid, traveller_id):
     WHERE id = {traveller_id}
     """.format(traveller_id=traveller_id))
     return jsonify(get_travellers_details(uid))
+
+
+@application.route('/holiday', methods=['POST'])
+def post_holiday():
+    type = request.form['type']
+    uid = request.form['user']
+    destination = request.form['destination']
+    departure_date = request.form['departure_date']
+    return_date = request.form['return_date']
+    db_manager.insert("""
+    REPLACE INTO trip (user, type, destination, departure_date, return_date)
+    VALUES ("{uid}", "{type}", "{destination}", "{departure_date}", "{return_date}")
+    """.format(uid=uid, type=type, destination=destination, departure_date=departure_date, return_date=return_date))
+    return jsonify(get_user_trips(uid)[type])
+
+
+@application.route('/holiday/<type>/<uid>/<holiday_id>', methods=['DELETE'])
+def delete_holiday(type, uid, holiday_id):
+    db_manager.insert("""
+    DELETE FROM trip
+    WHERE id = {trip_id}
+    """.format(trip_id=holiday_id))
+    return jsonify(get_user_trips(uid)[type])
+
+
+@application.route('/user/searches/<uid>', methods=['PUT'])
+def increment_searches(uid):
+    db_manager.insert("""
+    UPDATE user
+    SET searches = searches + 1
+    WHERE id = "{uid}"
+    """.format(uid=uid))
+    searches_query = db_manager.query("""
+    SELECT searches
+    FROM user
+    WHERE id = "{uid}"
+    """.format(uid=uid))
+    return jsonify({"searches": searches_query[0][0], "score": calculate_blimp_score(uid)})
+
+
+def calculate_blimp_score(uid):
+    counts = db_manager.query("""
+    SELECT bookings, searches, shares
+    FROM user
+    WHERE id = "{uid}"
+    """.format(uid=uid))[0]
+    score = blimp_score(counts[0], counts[1], counts[2])
+    db_manager.insert("""
+    UPDATE user
+    SET score = {score}
+    WHERE id = "{uid}"
+    """.format(score=score, uid=uid))
+    return score
+
+
+def blimp_score(bookings, searches, shares):
+    return 100 * bookings + 5 * searches + 10 * shares
+
+
+@application.route('/user/<uid>', methods=['PUT'])
+def update_user_details(uid):
+    values = request.form
+    old_values_query = db_manager.query("""
+    SELECT first_name, last_name, email
+    FROM user
+    WHERE id = "{uid}"
+    """.format(uid=uid))[0]
+    firstName = values["firstName"] if "firstName" in values else old_values_query[0]
+    lastName = values["lastName"] if "lastName" in values else old_values_query[1]
+    email = values["email"] if "email" in values else old_values_query[2]
+    db_manager.insert("""
+    UPDATE user
+    SET first_name = "{firstName}", last_name = "{lastName}", email = "{email}"
+    WHERE id = "{uid}"
+    """.format(uid=uid, firstName=firstName, lastName=lastName, email=email))
+    return jsonify(fetch_user_details(uid))

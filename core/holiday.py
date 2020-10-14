@@ -66,5 +66,5 @@ def choose_travel_and_accommodation(travel_options, ranked_accommodation_options
         maximum_price = min(budget, feedback["previous_price"])
 
     for acc in ranked_accommodation_options:
-        if travel_options[0]["price"]["amount"] + acc["price"]["amount"] < maximum_price:
+        if travel_options[0]["price"]["amount"] + acc["cheapestPrice"] < maximum_price:
             return (travel_options[0], acc)

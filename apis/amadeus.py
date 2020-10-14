@@ -14,6 +14,18 @@ amadeus = Client(
 )
 
 
+def get_accommodation_images(hotel_id):
+    accommodation = amadeus.shopping.hotel_offers_by_hotel.get(
+        hotelId=hotel_id, view="FULL_ALL_IMAGES", checkInDate="2021-02-24", checkOutDate="2021-02-25").result
+    return accommodation["data"]["hotel"]
+
+
+def get_accommodation_ratings(hotel_ids):
+    accommodation = amadeus.e_reputation.hotel_sentiments.get(
+        hotelIds=list_to_str_no_brackets(hotel_ids)).result
+    return accommodation
+
+
 def get_accommodation_for_destination(dest, check_in_date, check_out_date, travellers, accommodation_type, accommodation_stars, accommodation_amenities, currency, acc_list, next_token):
     if accommodation_stars == 1:
         accommodation_stars_range = [1, 2, 3, 4]
@@ -21,10 +33,10 @@ def get_accommodation_for_destination(dest, check_in_date, check_out_date, trave
         accommodation_stars_range = list(range(accommodation_stars, 6))
     if next_token == None:
         accommodation = amadeus.shopping.hotel_offers.get(view="FULL", cityCode=dest, checkInDate=check_in_date, checkOutDate=check_out_date,
-                                                          includeClosed="false", adults=travellers["adults"], currency=currency).result
+                                                          includeClosed=False, bestRateOnly=False, adults=travellers["adults"], currency=currency).result
     else:
         accommodation = amadeus.shopping.hotel_offers.get(view="FULL", cityCode=dest, checkInDate=check_in_date, checkOutDate=check_out_date,
-                                                          includeClosed="false", adults=travellers["adults"], currency=currency, page={"offset": next_token}).result
+                                                          includeClosed=False, bestRateOnly=False, adults=travellers["adults"], currency=currency, page={"offset": next_token}).result
     acc_list.extend(accommodation["data"])
     if "meta" in accommodation and "links" in accommodation["meta"] and "next" in accommodation["meta"]["links"]:
         current_next_token = accommodation["meta"]["links"]["next"].split(
