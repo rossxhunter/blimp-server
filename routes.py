@@ -1,4 +1,4 @@
-from config import application
+from config import application, root_folder
 from flask import request, session
 from core import destination, holiday, itinerary
 import json
@@ -12,7 +12,17 @@ from core.itinerary import get_POIs_for_destination
 from core.holiday import get_pois_list
 import csv
 from apis.exchange_rates import get_exchange_rate
+from apis.s3 import upload_profile_picture
+from apis.stripe import get_payment_cards, add_new_stripe_customer, add_new_card_for_customer, delete_card_for_customer
+from apis import musement
 from datetime import datetime
+from util.user import generate_referral_code
+from PIL import Image
+import io
+import boto
+import os
+from geopy import distance
+from util import products
 
 
 @application.route('/')
@@ -33,21 +43,23 @@ def get_holiday():
 
 
 @application.route('/city_details/<city>', methods=['GET'])
-def get_city_details(city):
-    currency = request.args.get('currency')
-    origin = request.args.get('origin')
+def get_city_details(city, origin=None, currency=None):
+    currency = request.args.get('currency') or currency
+    origin = request.args.get('origin') or origin
     city = int(city)
     city_query = db_manager.query("""
-    SELECT name, wiki_description, destination.population, CurrencyName, Languages, country_code, MAX(average_temp_c), culture_score, shopping_score, nightlife_score FROM destination
+    SELECT name, wiki_description, destination.population, CurrencyName, Languages, country_code, MAX(average_temp_c), culture_score, shopping_score, nightlife_score, musement_id
+    FROM destination
     JOIN country ON destination.country_code = country.ISO
     JOIN climate ON climate.weather_station_id = destination.weather_station_id
     WHERE id = {city}
-    """.format(city=city))
-    language_code = city_query[0][4].split(',')[0].split('-')[0]
+    """.format(city=city))[0]
+    musement_id = city_query[10]
+    language_code = city_query[4].split(',')[0].split('-')[0]
     language_query = db_manager.query("""
     SELECT name FROM language
     WHERE iso = "{language_code}"
-    """.format(language_code=language_code))
+    """.format(language_code=language_code))[0]
     images_query = db_manager.query("""
     SELECT url FROM destination_photo
     WHERE dest_id = {city}
@@ -55,36 +67,26 @@ def get_city_details(city):
     images = []
     for image in images_query:
         images.append(image[0])
-    attractions_query = db_manager.query("""
-    SELECT poi.name, categories.name, categories.icon_prefix, poi_photo.url, poi.rating
-    FROM poi
-    JOIN poi_photo ON poi_photo.reference = (
-        SELECT p.reference FROM poi_photo AS p
-        WHERE p.poi_id = poi.id
-        LIMIT 1
-    )
-    JOIN categories ON categories.id = foursquare_category_id
-    WHERE poi.destination_id = {city}
-    ORDER BY poi.num_ratings DESC
-    """.format(city=city))
-    attractions = []
-    for i in range(0, min(len(attractions_query), 5)):
-        attractions.append(
-            {"name": attractions_query[i][0], "category": attractions_query[i][1], "categoryIcon": attractions_query[i][2], "bestPhoto": attractions_query[i][3], "rating": attractions_query[i][4], "description": ""})
+    attractions = products.get_attractions(city)
+    tours = []
+    if musement_id != None:
+        raw_tours = musement.get_activities(musement_id, currency)
+        for tour in raw_tours:
+            if "duration_range" not in tour:
+                duration = "n/a"
+            else:
+                duration = tour["duration_range"]["max"]
+            if "latitude" not in tour:
+                location = None
+            else:
+                location = {
+                    "latitude": tour["latitude"], "longitude": tour["longitude"]}
+            tours.append(
+                {"id": tour["uuid"], "name": tour["title"], "location": location, "duration": duration, "price": tour["retail_price"]["value"], "category": tour["categories"][0]["name"],  "images": [tour["cover_image_url"].split("?w=")[0]], "rating": float(tour["reviews_avg"]), "description": tour["description"] if "description" in tour else "", "about": tour["about"]})
+
     similar_destinations = suggestions.fetch_similar_destinations(city)
-    valid_dates_query = db_manager.query("""
-    SELECT departure_date, return_date, price_amount, price_currency
-    FROM flyable_destination
-    WHERE origin = {origin} AND destination = {destination} AND departure_date >= "{today_date}"
-    """.format(origin=origin, destination=city, today_date=datetime.now()))
-    valid_dates = []
-    if len(valid_dates_query) > 0:
-        conversion_rate = get_exchange_rate(valid_dates_query[0][3], currency)
-        for vd in valid_dates_query:
-            price = vd[2] * conversion_rate
-            valid_dates.append(
-                {"departureDate": vd[0].strftime("%Y-%m-%d"), "returnDate": vd[1].strftime("%Y-%m-%d"), "price": price})
-    return jsonify({"id": city, "name": city_query[0][0], "validDates": valid_dates, "attractions": attractions, "similarDestinations": similar_destinations, "images": images, "country_code": city_query[0][5], "description": city_query[0][1], "population": city_query[0][2], "currency": city_query[0][3], "language": language_query[0][0], "temperature": city_query[0][6], "culture": city_query[0][7], "shopping": city_query[0][8], "nightlife": city_query[0][9]})
+    valid_dates = products.get_valid_dates(origin, city, currency)
+    return jsonify({"id": city, "name": city_query[0], "validDates": valid_dates, "attractions": attractions, "tours": tours, "similarDestinations": similar_destinations, "images": images, "country_code": city_query[5], "description": city_query[1], "population": city_query[2], "currency": city_query[3], "language": language_query[0], "temperature": city_query[6], "culture": city_query[7], "shopping": city_query[8], "nightlife": city_query[9]})
 
 
 @application.route('/holiday_from_feedback', methods=['GET'])
@@ -246,15 +248,17 @@ def post_click(clicks_id, click_name):
 
 
 @application.route('/user', methods=['POST'])
-def post_new_user():
+def add_new_user():
     uid = request.form['id']
     email = request.form['email']
     first_name = request.form['first_name']
     last_name = request.form['last_name']
+    referral_code = generate_referral_code()
+    stripe_id = add_new_stripe_customer()
     db_manager.insert("""
-    INSERT INTO user (id, email, first_name, last_name)
-    VALUES ("{uid}", "{email}", "{first_name}", "{last_name}")
-    """.format(uid=uid, email=email, first_name=first_name, last_name=last_name))
+    INSERT INTO user (id, email, first_name, last_name, referral_code, stripe_id)
+    VALUES ("{uid}", "{email}", "{first_name}", "{last_name}", "{referral_code}", "{stripe_id}")
+    """.format(uid=uid, email=email, first_name=first_name, last_name=last_name, referral_code=referral_code, stripe_id=stripe_id))
     return "Success"
 
 
@@ -266,11 +270,12 @@ def get_user_details(uid):
 
 def fetch_user_details(uid):
     user_details = db_manager.query("""
-    SELECT id, email, first_name, last_name, currency, referral_code, bookings, searches, shares, score
+    SELECT id, email, first_name, last_name, currency, referral_code, bookings, searches, shares, score, profile_picture, stripe_id
     FROM user
     WHERE id = "{uid}"
-    """.format(uid=uid))
-    return {"id": user_details[0][0], "email": user_details[0][1], "firstName": user_details[0][2], "lastName": user_details[0][3], "currency": user_details[0][4], "referralCode": user_details[0][5], "bookings": user_details[0][6], "searches": user_details[0][7], "shares": user_details[0][8], "score": user_details[0][9], "travellers": get_travellers_details(uid), "trips": get_user_trips(uid)}
+    """.format(uid=uid))[0]
+    cards = get_payment_cards(user_details[11])
+    return {"id": user_details[0], "email": user_details[1], "firstName": user_details[2], "lastName": user_details[3], "currency": user_details[4], "referralCode": user_details[5], "bookings": user_details[6], "searches": user_details[7], "shares": user_details[8], "score": user_details[9], "profilePicture": user_details[10], "travellers": get_travellers_details(uid), "trips": get_user_trips(uid), "paymentCards": cards}
 
 
 def get_user_trips(uid):
@@ -447,3 +452,138 @@ def update_user_details(uid):
     WHERE id = "{uid}"
     """.format(uid=uid, firstName=firstName, lastName=lastName, email=email))
     return jsonify(fetch_user_details(uid))
+
+
+@application.route('/activity/<activity_id>', methods=['GET'])
+def get_activity_details(activity_id):
+    currency = request.args.get('currency')
+    tickets = []
+    venue_id = db_manager.query("""
+    SELECT musement_id
+    FROM poi
+    WHERE id = "{poi_id}"
+    """.format(poi_id=activity_id))[0][0]
+    if venue_id != None:
+        raw_tickets = musement.get_activities_for_venue(venue_id, currency)
+        tickets = []
+        for ticket in raw_tickets:
+            if "duration_range" not in ticket:
+                duration = "n/a"
+            else:
+                duration = ticket["duration_range"]["max"]
+            tickets.append(
+                {"id": ticket["uuid"], "name": ticket["title"], "duration": duration, "price": ticket["retail_price"]["value"], "category": ticket["categories"][0]["name"],  "images": [ticket["cover_image_url"].split("?w=")[0]], "rating": float(ticket["reviews_avg"]), "description": ticket["description"] if "description" in ticket else "", "about": ticket["about"]})
+
+    details = products.fetch_activity_details(activity_id)
+    details["tickets"] = tickets
+    return jsonify(details)
+
+
+@application.route('/hotel/<hotel_id>', methods=['GET'])
+def get_hotel_details(hotel_id):
+    hotel = db_manager.query("""
+    SELECT name, latitude, longitude, stars, street_address, postcode, amenities, description
+    FROM hotel
+    WHERE id = "{hotel_id}"
+    """.format(hotel_id=hotel_id))
+    hotel_images = db_manager.query("""
+    SELECT url, type
+    FROM hotel_photo
+    WHERE hotel_id = "{hotel_id}"
+    """.format(hotel_id=hotel_id))
+    images = []
+    for image in hotel_images:
+        images.append({"url": image[0], "type": image[1]})
+    hotel_ratings = db_manager.query("""
+    SELECT overall, sleep_quality, service, facilities, room_comforts, value_for_money, catering, swimming_pool, location, internet, points_of_interest, staff
+    FROM hotel_rating
+    WHERE hotel = "{hotel_id}"
+    """.format(hotel_id=hotel_id))
+    if len(hotel_ratings) == 0:
+        rating = None
+    else:
+        rating = {"overall": hotel_ratings[0][0], "sleep_quality": hotel_ratings[0][1], "service": hotel_ratings[0][2], "facilities": hotel_ratings[0][3], "room_comforts": hotel_ratings[0][4], "value_for_money": hotel_ratings[0]
+                  [5], "catering": hotel_ratings[0][6], "swimming_pool": hotel_ratings[0][7], "location": hotel_ratings[0][8], "internet": hotel_ratings[0][9], "points_of_interest": hotel_ratings[0][10], "staff": hotel_ratings[0][11]}
+
+    hotel_details = {"name": hotel[0][0], "latitude": hotel[0][1], "longitude": hotel[0][2],
+                     "stars": hotel[0][3], "address": {"streetAddress": hotel[0][4], "postcode": hotel[0][5]}, "amenities": json.loads(hotel[0][6]), "description": hotel[0][7], "images": images, "rating": rating}
+    return jsonify(hotel_details)
+
+
+@application.route('/random_destination', methods=['GET'])
+def get_random_destination():
+    origin = request.args.get('origin')
+    currency = request.args.get('currency')
+    dest = db_manager.query("""
+    SELECT id
+    FROM destination
+    WHERE tourist_score IS NOT NULL
+    ORDER BY RAND()
+    LIMIT 1
+    """)
+    return get_city_details(dest[0][0], origin=origin, currency=currency)
+
+
+@application.route('/user/profile_picture/<user_id>', methods=['POST'])
+def add_profile_picture(user_id):
+    image = request.files.get("image")
+    image_path = "{root_folder}/tmp/{user_id}.jpg".format(
+        root_folder=root_folder, user_id=user_id)
+    image.save(image_path)
+    upload_profile_picture(user_id, image_path)
+    os.remove(image_path)
+    db_manager.insert("""
+    UPDATE user
+    SET profile_picture = "https://blimp-resources.s3.eu-west-2.amazonaws.com/profile_pictures/{user_id}.jpg"
+    WHERE id = "{user_id}"
+    """.format(user_id=user_id))
+    return "Success"
+
+
+@application.route('/user/<user_id>/payment_card', methods=['POST'])
+def add_new_payment_card(user_id):
+    customer_id = db_manager.query("""
+    SELECT stripe_id
+    FROM user
+    WHERE id = "{user_id}"
+    """.format(user_id=user_id))[0][0]
+    card_number = request.form["card_number"]
+    card_holder_name = request.form["card_holder_name"]
+    expiry_date_month = int(request.form["expiry_date_month"])
+    expiry_date_year = int("20" + request.form["expiry_date_year"])
+    cvv_code = request.form["cvv_code"]
+
+    new_card = add_new_card_for_customer(customer_id, card_number,
+                                         expiry_date_month, expiry_date_year, cvv_code, card_holder_name)
+    return jsonify(new_card)
+
+
+@application.route('/user/<uid>/payment_card/<card_id>', methods=['DELETE'])
+def delete_payment_card(uid, card_id):
+    customer_id = db_manager.query("""
+    SELECT stripe_id
+    FROM user
+    WHERE id = "{user_id}"
+    """.format(user_id=uid))[0][0]
+    delete_card_for_customer(customer_id, card_id)
+    return "Success"
+
+
+@application.route('/tour/<activity_id>', methods=['GET'])
+def get_tour_details(activity_id):
+    currency = request.args.get('currency')
+    details = musement.get_activity(activity_id, currency)
+    details["pois"] = []
+    for venue in details["venues"]:
+        poi_query = db_manager.query("""
+        SELECT id
+        FROM poi
+        WHERE musement_id = {musement_id}
+        LIMIT 1
+        """.format(musement_id=venue["id"]))
+        if len(poi_query) != 0:
+            poi = products.fetch_activity_details(poi_query[0][0])
+            details["pois"].append(poi)
+    images = musement.get_images(activity_id)
+    details["images"] = images
+    return jsonify(details)

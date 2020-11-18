@@ -7,6 +7,7 @@ import os
 from util.db_populate import populate_DB
 from datetime import datetime, timedelta
 import clicks
+import apis.musement as museument
 
 
 def fetch_all_suggestions():
@@ -82,32 +83,43 @@ def fetch_search_suggestions():
             {"name": city[1], "countryCode": city[2].lower(), "countryName": city[3], "type": "city", "id": city[0]})
 
     hotels_query = db_manager.query("""
-    SELECT hotel.name, destination.name, destination.country_code FROM hotel
+    SELECT hotel.id, hotel.name, destination.name, destination.country_code, hotel_photo.url 
+    FROM hotel
     JOIN destination ON hotel.city = destination.city_code
+    JOIN hotel_photo ON hotel_photo.id = (
+        SELECT h.id FROM hotel_photo AS h
+        WHERE h.hotel_id = hotel.id
+        LIMIT 1
+    )
     """)
     hotels = []
     for hotel in hotels_query:
         hotels.append(
-            {"name": hotel[0], "city": hotel[1], "countryCode": hotel[2]})
+            {"id": hotel[0], "name": hotel[1], "city": hotel[2], "countryCode": hotel[3], "image": hotel[4]})
 
     attractions_query = db_manager.query("""
-    SELECT poi.name, destination.name, categories.name, categories.icon_prefix, destination.country_code
+    SELECT poi.id, poi.name, destination.name, categories.name, categories.icon_prefix, destination.country_code, poi_photo.url
     FROM poi
     JOIN categories ON poi.foursquare_category_id = categories.id
     JOIN destination ON destination.id = poi.destination_id
+    JOIN poi_photo ON poi_photo.reference = (
+        SELECT p.reference FROM poi_photo AS p
+        WHERE p.poi_id = poi.id
+        LIMIT 1
+    )
     WHERE poi.num_ratings > 1000
     """)
     attractions = []
     for attraction in attractions_query:
         attractions.append(
-            {"name": attraction[0], "city": attraction[1], "cat_name": attraction[2], "cat_icon": attraction[3], "countryCode": attraction[4]})
+            {"id": attraction[0], "name": attraction[1], "city": attraction[2], "cat_name": attraction[3], "cat_icon": attraction[4], "countryCode": attraction[5], "image": attraction[6]})
 
     return {"destinations": cities, "hotels": hotels, "attractions": attractions}
 
 
 def fetch_attraction_suggestions():
     attractions_query = db_manager.query("""
-    SELECT poi.name, destination.name, country_code, categories.name, categories.icon_prefix, poi_photo.url
+    SELECT poi.id, poi.name, destination.name, country_code, categories.name, categories.icon_prefix, poi_photo.url
     FROM poi
     JOIN categories ON poi.foursquare_category_id = categories.id
     JOIN destination ON destination.id = poi.destination_id
@@ -130,9 +142,8 @@ def fetch_attraction_suggestions():
 
     attractions = []
     for i in range(0, 15):
-        print(random_nums[i])
         attractions.append(
-            {"name": attractions_query[random_nums[i]][0], "city_name": attractions_query[random_nums[i]][1], "country_code": attractions_query[random_nums[i]][2], "cat_name": attractions_query[random_nums[i]][3], "cat_icon": attractions_query[random_nums[i]][4], "photo": attractions_query[random_nums[i]][5]})
+            {"id": attractions_query[random_nums[i]][0], "name": attractions_query[random_nums[i]][1], "city_name": attractions_query[random_nums[i]][2], "country_code": attractions_query[random_nums[i]][3], "cat_name": attractions_query[random_nums[i]][4], "cat_icon": attractions_query[random_nums[i]][5], "photo": attractions_query[random_nums[i]][6]})
     return attractions
 
 

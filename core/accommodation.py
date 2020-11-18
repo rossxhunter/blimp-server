@@ -43,10 +43,14 @@ def get_accommodation_options(dest, check_in_date, check_out_date, travellers, a
                     details["nights"] = nights
                     accommodation_details.append(details)
                     db_manager.insert("""
-                    INSERT INTO hotel (id, provider, city, name, latitude, longitude, chain_code, stars, street_address, postcode, amenities, images_fetched)
-                    VALUES ("{hotel_id}", "amadeus", "{dest}", "{name}", {latitude}, {longitude}, NULL, {stars}, "{street_address}", "{postcode}", "{amenities}", FALSE)
-                    """.format(hotel_id=details["hotelId"], dest=dest, name=details["name"], latitude=details["latitude"], longitude=details["longitude"], stars=details["stars"], street_address=details["address"]["streetAddress"].replace('\\n', '\\\\n'), postcode=details["address"]["postcode"], amenities=json.dumps(details["amenities"]).replace('"', '\\"')))
-
+                    INSERT INTO hotel (id, provider, city, name, latitude, longitude, chain_code, stars, street_address, postcode, amenities, description)
+                    VALUES ("{hotel_id}", "amadeus", "{dest}", "{name}", {latitude}, {longitude}, NULL, {stars}, "{street_address}", "{postcode}", "{amenities}", "{description}")
+                    """.format(hotel_id=details["hotelId"], dest=dest, name=details["name"], latitude=details["latitude"], longitude=details["longitude"], stars=details["stars"], street_address=details["address"]["streetAddress"].replace('\\n', '\\\\n'), postcode=details["address"]["postcode"], amenities=json.dumps(details["amenities"]).replace('"', '\\"'), description=details["description"]))
+                    db_manager.insert("""
+                    UPDATE hotel
+                    SET description = "{description}"
+                    WHERE id = "{hotel_id}"
+                    """.format(hotel_id=details["hotelId"], description=details["description"]))
                 i += 1
         db_manager.insert("""
         REPLACE INTO accommodation_result (dest, check_in_date, check_out_date, travellers, currency, result, timestamp)
@@ -54,14 +58,14 @@ def get_accommodation_options(dest, check_in_date, check_out_date, travellers, a
         """.format(dest=dest, check_in_date=check_in_date, check_out_date=check_out_date, travellers=travellers, currency=currency, timestamp=timestamp, result=json.dumps(accommodation_details, ensure_ascii=False).replace('\\n', '\\\\n').replace('\\r', '\\\\r').replace('"', '\\"')))
     for hotel in accommodation_details:
         hotel_images = db_manager.query("""
-        SELECT url
+        SELECT url, type
         FROM hotel_photo
         WHERE hotel_id = "{hotel}"
         """.format(hotel=hotel["hotelId"]))
         if len(hotel_images) > 0:
             hotel["images"] = []
         for image in hotel_images:
-            hotel["images"].append(image[0])
+            hotel["images"].append({"url": image[0], "type": image[1]})
 
     return accommodation_details
 
@@ -113,7 +117,11 @@ def get_accommodation_details(accommodation, currency, conversion):
     # returned_currency = cheapest_offer["price"]["currency"]
 
     accommodation_details["offers"] = []
-    cheapest_price = float(accommodation["offers"][0]["price"]["total"])
+    if "total" in accommodation["offers"][0]["price"]:
+        cheapest_price = float(accommodation["offers"][0]["price"]["total"])
+    else:
+        cheapest_price = float(accommodation["offers"][0]["price"]["base"])
+
     for offer in accommodation["offers"]:
         acc_offer = {}
         room_type = get_room_type(offer["room"]["type"])

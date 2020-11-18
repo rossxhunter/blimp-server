@@ -2,9 +2,9 @@ import wikipedia
 import re
 
 
-def get_wiki_description(name):
+def get_wiki_description(name, sentences=2):
     try:
-        summary = wikipedia.summary(name, sentences=2)
+        summary = wikipedia.summary(name, sentences=sentences)
     except:
         summary = ""
     return remove_brackets(summary).replace('  ', ' ').replace(' ,', ",").replace('"', '')

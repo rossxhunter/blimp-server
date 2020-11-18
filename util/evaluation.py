@@ -30,7 +30,7 @@ def get_poi_details_for_itinerary(itinerary):
             if day[0] not in itinerary_with_details:
                 itinerary_with_details[day[0]] = []
             itinerary_with_details[day[0]].append({"id": poi["id"], "startTime": poi["startTime"], "duration": poi["duration"], "travelTimeToNext": poi["travelTimeToNext"], "travelMethodToNext": poi["travelMethodToNext"], "name": details[1], "rating": details[2], "popularity": details[3],
-                                                   "bestPhoto": details[4], "description": details[5], "category": details[6], "categoryIcon": details[7]})
+                                                   "images": [details[4]], "description": details[5], "category": details[6], "categoryIcon": details[7]})
 
     return itinerary_with_details
 

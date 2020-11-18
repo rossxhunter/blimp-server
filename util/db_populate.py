@@ -1,5 +1,5 @@
 from config import db_manager
-from apis import foursquare, wikipedia, google_places, pixabay, wmo, geonames, amadeus
+from apis import foursquare, wikipedia, google_places, pixabay, wmo, geonames, amadeus, musement
 from core import flights, accommodation, itinerary
 import urllib
 import shutil
@@ -38,11 +38,55 @@ def populate_DB():
     # populate_flyable_dests()
     # populate_hotels()
     # populate_hotel_images()
-    populate_hotel_ratings()
+    # populate_hotel_ratings()
     # fetch_hotel_image_urls()
+
+    # populate_musement_city_ids()
+    # populate_musement_poi_ids()
 
     # OLD calculate_destination_scores()
     return
+
+
+def populate_musement_poi_ids():
+    cities_query = db_manager.query("""
+    SELECT id, musement_id
+    FROM destination
+    WHERE musement_id IS NOT NULL
+    """)
+    for city in cities_query:
+        musement_city_id = city[1]
+        destination_id = city[0]
+        venues = musement.get_venues(musement_city_id)
+        pois_query = db_manager.query("""
+        SELECT id, latitude, longitude
+        FROM poi
+        WHERE destination_id = {destination_id}
+        """.format(destination_id=destination_id))
+        matched_pois = []
+        for venue in venues:
+            for poi in pois_query:
+                d = distance.distance(
+                    (venue["latitude"], venue["longitude"]), (poi[1], poi[2])).km
+                if d < 0.01:
+                    matched_pois.append((poi[0], venue["id"]))
+        for poi in matched_pois:
+            db_manager.insert("""
+            UPDATE poi
+            SET musement_id = {musement_id}
+            WHERE id = "{poi_id}"
+            """.format(musement_id=poi[1], poi_id=poi[0]))
+
+
+def populate_musement_city_ids():
+    cities = musement.get_cities()
+    for city in cities:
+        db_manager.insert("""
+        UPDATE destination
+        SET musement_id = {musement_id}
+        WHERE name = "{city_name}"
+        AND tourist_score IS NOT NULL
+        """.format(musement_id=city["id"], city_name=city["name"]))
 
 
 def populate_travel_times():
@@ -79,7 +123,7 @@ def populate_hotel_images():
     """)
     for hotel in hotel_query:
         h = amadeus.get_accommodation_images(hotel[0])
-        if "media" in h:
+        if h != None and "media" in h:
             images = h["media"]
             for image in images:
                 url = image["uri"].replace("http://", "https://")
@@ -183,7 +227,7 @@ def populate_flyable_dests():
     """.format(origin=origin))[0][0]
     durations = ["1,5"]
     for duration in durations:
-        original_departure_date = datetime.strptime("2020-10-20", "%Y-%m-%d")
+        original_departure_date = datetime.strptime("2020-11-20", "%Y-%m-%d")
 
         for i in range(0, 1):
             departure_date = (original_departure_date + timedelta(days=i)
@@ -349,13 +393,14 @@ def populate_POI_wiki_desc():
     pois = db_manager.query("""
     SELECT poi.id, poi.name, destination.name, destination.country_code FROM poi
     JOIN destination ON destination.id = poi.destination_id
-    WHERE poi.wiki_description IS NULL
+    WHERE poi.num_ratings > 1000
+    AND poi.destination_id=524901
     """)
     for poi in pois:
         search_term = poi[1]
         if poi[2] not in search_term:
             search_term += " " + poi[2]
-        desc = wikipedia.get_wiki_description(search_term)
+        desc = wikipedia.get_wiki_description(search_term, sentences=4)
         db_manager.insert("""
         UPDATE poi SET wiki_description = "{desc}"
         WHERE id = "{id}"

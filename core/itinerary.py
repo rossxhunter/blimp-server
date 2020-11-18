@@ -471,7 +471,7 @@ def get_POIs_for_destination(destination, pref_scores, should_restrict):
         for pref in pref_scores.keys():
             score += 5 - abs((pref_scores[pref] or 3) - poi_scores[pref])
         pois[poi[0]] = {"name": poi[1],
-                        "latitude": poi[2], "longitude": poi[3], "score": score, "averageDuration": duration * 60, "popularity": poi[4] if poi[4] != None else 0, "rating": poi[5] if poi[5] != None else 0, "description": poi[6], "bestPhoto": poi[7], "categoryId": poi[8], "category": poi[9], "categoryIcon": poi[10]}
+                        "latitude": poi[2], "longitude": poi[3], "score": score, "averageDuration": duration * 60, "popularity": poi[4] if poi[4] != None else 0, "rating": poi[5] if poi[5] != None else 0, "description": poi[6], "images": [poi[7]], "categoryId": poi[8], "category": poi[9], "categoryIcon": poi[10]}
         # pois[poi[0] + "2"] = {"name": poi[1],
         #                       "latitude": poi[2], "longitude": poi[3], "score": score, "averageDuration": duration * 60, "popularity": poi[4] if poi[4] != None else 0, "rating": poi[5] if poi[5] != None else 0, "description": poi[6], "bestPhoto": poi[7], "categoryId": poi[8], "category": poi[9], "categoryIcon": poi[10]}
         # pois[poi[0] + "3"] = {"name": poi[1],

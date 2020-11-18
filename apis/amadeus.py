@@ -16,8 +16,11 @@ amadeus = Client(
 
 def get_accommodation_images(hotel_id):
     accommodation = amadeus.shopping.hotel_offers_by_hotel.get(
-        hotelId=hotel_id, view="FULL_ALL_IMAGES", checkInDate="2021-02-24", checkOutDate="2021-02-25").result
-    return accommodation["data"]["hotel"]
+        hotelId=hotel_id, view="FULL_ALL_IMAGES", checkInDate="2021-04-28", checkOutDate="2021-04-29").result
+    if "data" in accommodation:
+        return accommodation["data"]["hotel"]
+    else:
+        return None
 
 
 def get_accommodation_ratings(hotel_ids):
